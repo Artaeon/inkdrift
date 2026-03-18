@@ -63,6 +63,9 @@ func (db *DB) ListCampaigns() ([]Campaign, error) {
 		}
 		campaigns = append(campaigns, c)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating campaigns: %w", err)
+	}
 	return campaigns, nil
 }
 

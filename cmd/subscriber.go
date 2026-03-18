@@ -44,7 +44,7 @@ var subAddCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		fmt.Printf("Subscriber added: %s (ID: %s)\n", sub.Email, sub.ID[:8])
+		fmt.Printf("Subscriber added: %s (ID: %s)\n", sub.Email, shortID(sub.ID))
 	},
 }
 
@@ -119,6 +119,17 @@ var subImportCmd = &cobra.Command{
 		listName, _ := cmd.Flags().GetString("list")
 		listID := resolveListID(database, listName)
 
+		// Check file size before reading (max 50MB)
+		info, err := os.Stat(args[0])
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		if info.Size() > 50*1024*1024 {
+			fmt.Fprintln(os.Stderr, "CSV file too large (max 50MB)")
+			os.Exit(1)
+		}
+
 		f, err := os.Open(args[0])
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error opening file: %v\n", err)
@@ -133,17 +144,29 @@ var subImportCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
+		const maxImport = 100000
+		if len(records) > maxImport {
+			fmt.Fprintf(os.Stderr, "CSV has %d rows, max import is %d per batch\n", len(records), maxImport)
+			os.Exit(1)
+		}
+
 		var entries []struct{ Email, Name string }
 		for i, record := range records {
+			if len(record) == 0 {
+				continue
+			}
 			if i == 0 && (strings.EqualFold(record[0], "email") || strings.EqualFold(record[0], "e-mail")) {
 				continue // skip header
 			}
-			email := strings.TrimSpace(record[0])
+			email := strings.TrimSpace(strings.ToLower(record[0]))
 			name := ""
 			if len(record) > 1 {
 				name = strings.TrimSpace(record[1])
 			}
-			if email != "" && strings.Contains(email, "@") {
+			if len(name) > 200 {
+				name = name[:200]
+			}
+			if email != "" && strings.Contains(email, "@") && len(email) <= 254 {
 				entries = append(entries, struct{ Email, Name string }{email, name})
 			}
 		}
@@ -243,7 +266,7 @@ func resolveListID(database *db.DB, nameOrID string) string {
 	if len(lists) > 1 {
 		fmt.Println("Multiple lists found. Please specify with --list:")
 		for _, l := range lists {
-			fmt.Printf("  - %s (%s)\n", l.Name, l.ID[:8])
+			fmt.Printf("  - %s (%s)\n", l.Name, shortID(l.ID))
 		}
 		os.Exit(1)
 	}

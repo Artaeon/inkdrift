@@ -47,7 +47,7 @@ var tmplCreateCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		fmt.Printf("Template created: %s (ID: %s)\n", t.Name, t.ID[:8])
+		fmt.Printf("Template created: %s (ID: %s)\n", t.Name, shortID(t.ID))
 	},
 }
 

@@ -62,9 +62,9 @@ var campaignCreateCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		fmt.Printf("Campaign created: %s (ID: %s)\n", c.Name, c.ID[:8])
+		fmt.Printf("Campaign created: %s (ID: %s)\n", c.Name, shortID(c.ID))
 		fmt.Printf("Status: %s\n", c.Status)
-		fmt.Printf("Send with: inkdrift campaign send %s\n", c.ID[:8])
+		fmt.Printf("Send with: inkdrift campaign send %s\n", shortID(c.ID))
 	},
 }
 

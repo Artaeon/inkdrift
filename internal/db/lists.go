@@ -62,6 +62,9 @@ func (db *DB) ListLists() ([]List, error) {
 		}
 		lists = append(lists, l)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating lists: %w", err)
+	}
 	return lists, nil
 }
 

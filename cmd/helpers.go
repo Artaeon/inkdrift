@@ -53,3 +53,11 @@ func confirm(label string) bool {
 	val := strings.TrimSpace(strings.ToLower(scanner.Text()))
 	return val == "y" || val == "yes"
 }
+
+// shortID safely truncates an ID for display
+func shortID(id string) string {
+	if len(id) > 8 {
+		return id[:8]
+	}
+	return id
+}

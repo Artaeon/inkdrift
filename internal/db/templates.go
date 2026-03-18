@@ -62,6 +62,9 @@ func (db *DB) ListTemplates() ([]Template, error) {
 		}
 		templates = append(templates, t)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating templates: %w", err)
+	}
 	return templates, nil
 }
 
