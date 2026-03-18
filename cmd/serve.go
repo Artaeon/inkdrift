@@ -16,17 +16,18 @@ var serveCmd = &cobra.Command{
 	Long: `Starts the REST API server for website integration.
 
 Public endpoints:
-  POST /api/v1/subscribe      - Subscribe an email
-  GET  /api/v1/unsubscribe    - Unsubscribe by token
-  GET  /api/v1/confirm        - Confirm subscription
+  POST /api/v1/subscribe       - Subscribe (double opt-in if SMTP configured)
+  GET  /api/v1/unsubscribe     - Unsubscribe by token
+  GET  /api/v1/confirm         - Confirm subscription (double opt-in)
 
 Admin endpoints (requires API key):
-  GET  /api/v1/lists          - List all lists
-  POST /api/v1/lists          - Create a list
-  GET  /api/v1/lists/:id/subscribers - List subscribers
-  GET  /api/v1/campaigns      - List campaigns
-  GET  /api/v1/stats          - Dashboard stats
-  GET  /health                - Health check
+  GET  /api/v1/lists           - List all lists
+  POST /api/v1/lists           - Create a list
+  GET  /api/v1/lists/:id/subscribers        - List subscribers (paginated)
+  GET  /api/v1/lists/:id/subscribers/search - Search subscribers (?q=)
+  GET  /api/v1/campaigns       - List campaigns
+  GET  /api/v1/stats           - Dashboard stats
+  GET  /health                 - Health check
 
 Works out of the box with defaults. Configure via inkdrift.toml or environment variables.`,
 	Run: func(cmd *cobra.Command, args []string) {

@@ -233,6 +233,40 @@ var subExportCmd = &cobra.Command{
 	},
 }
 
+var subSearchCmd = &cobra.Command{
+	Use:   "search [query]",
+	Short: "Search subscribers by email or name",
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		cfg := loadConfig()
+		database := openDB(cfg)
+		defer database.Close()
+
+		listName, _ := cmd.Flags().GetString("list")
+		listID := resolveListID(database, listName)
+
+		subs, err := database.SearchSubscribers(listID, args[0], 50)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+
+		if len(subs) == 0 {
+			fmt.Printf("No subscribers matching '%s'\n", args[0])
+			return
+		}
+
+		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+		fmt.Fprintln(w, "ID\tEMAIL\tNAME\tSTATUS")
+		fmt.Fprintln(w, "--\t-----\t----\t------")
+		for _, s := range subs {
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", shortID(s.ID), s.Email, s.Name, s.Status)
+		}
+		w.Flush()
+		fmt.Printf("\n%d result(s)\n", len(subs))
+	},
+}
+
 func init() {
 	rootCmd.AddCommand(subscriberCmd)
 	subscriberCmd.AddCommand(subAddCmd)
@@ -240,8 +274,9 @@ func init() {
 	subscriberCmd.AddCommand(subRemoveCmd)
 	subscriberCmd.AddCommand(subImportCmd)
 	subscriberCmd.AddCommand(subExportCmd)
+	subscriberCmd.AddCommand(subSearchCmd)
 
-	for _, c := range []*cobra.Command{subAddCmd, subListCmd, subRemoveCmd, subImportCmd, subExportCmd} {
+	for _, c := range []*cobra.Command{subAddCmd, subListCmd, subRemoveCmd, subImportCmd, subExportCmd, subSearchCmd} {
 		c.Flags().StringP("list", "l", "", "List name or ID")
 	}
 
