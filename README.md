@@ -209,6 +209,7 @@ inkdrift init                                      Interactive setup wizard
 inkdrift serve                                     Start API server
 inkdrift version                                   Print version
 inkdrift stats                                     Show dashboard statistics
+inkdrift config validate                           Check configuration for issues
 inkdrift test-smtp user@example.com                Test SMTP configuration
 inkdrift check-dns example.com                     Check SPF/DKIM/DMARC/MX records
 inkdrift backup create                             Backup database
@@ -216,7 +217,7 @@ inkdrift backup ls                                 List backups
 inkdrift backup restore <file>                     Restore from backup
 
 inkdrift list create "Name"                        Create a mailing list
-inkdrift list ls                                   List all lists
+inkdrift list ls                                   List all lists (with subscriber counts)
 inkdrift list delete <id>                          Delete a list
 
 inkdrift subscriber add email@example.com          Add a subscriber
@@ -229,11 +230,13 @@ inkdrift subscriber remove email@example.com       Unsubscribe
 inkdrift campaign init "Campaign Name"             Scaffold campaign directory
 inkdrift campaign create --name "..." --list "..."   Create a campaign
 inkdrift campaign ls                               List all campaigns
+inkdrift campaign show <id>                        Show campaign details
 inkdrift campaign preview <id>                     Preview rendered HTML
 inkdrift campaign test-send <id> email@example.com Send test to one address
 inkdrift campaign update <id> --body-file new.html Update campaign body
 inkdrift campaign duplicate <id>                   Duplicate as new draft
 inkdrift campaign send <id>                        Send to all subscribers
+inkdrift campaign send <id> --retry                Resend to failed subscribers
 inkdrift campaign send <id> --dry-run              Preview without sending
 inkdrift campaign delete <id>                      Delete a campaign
 
@@ -252,6 +255,8 @@ When SMTP and domain are configured, InkDrift automatically enables double opt-i
 5. Only `active` subscribers receive campaign emails
 
 This satisfies CAN-SPAM and GDPR consent requirements. When SMTP is not configured (e.g., local development or CLI-only usage), subscribers are created as `active` immediately.
+
+Users who previously unsubscribed or were bounced can re-subscribe through the same API endpoint. They will go through the double opt-in flow again to confirm their intent.
 
 ## SMTP Providers
 
@@ -425,6 +430,8 @@ WantedBy=multi-user.target
 - **Bounce detection** marks permanently failed addresses to protect sender reputation
 - **Atomic campaign sends** prevent double-send race conditions
 - **Request logging** for all API endpoints (method, path, status, duration, IP)
+- **Failed auth logging** records IP of failed API key attempts
+- **Database integrity check** on startup detects corruption before serving
 
 ## Architecture
 
