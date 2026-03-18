@@ -1,0 +1,98 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 400" fill="none">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0f172a"/>
+      <stop offset="50%" style="stop-color:#1e293b"/>
+      <stop offset="100%" style="stop-color:#0f172a"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#6366f1"/>
+      <stop offset="100%" style="stop-color:#8b5cf6"/>
+    </linearGradient>
+    <linearGradient id="text-gradient" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#e2e8f0"/>
+      <stop offset="100%" style="stop-color:#f8fafc"/>
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="3" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1200" height="400" fill="url(#bg)" rx="12"/>
+
+  <!-- Subtle grid pattern -->
+  <g opacity="0.03" stroke="#94a3b8" stroke-width="1">
+    <line x1="0" y1="50" x2="1200" y2="50"/>
+    <line x1="0" y1="100" x2="1200" y2="100"/>
+    <line x1="0" y1="150" x2="1200" y2="150"/>
+    <line x1="0" y1="200" x2="1200" y2="200"/>
+    <line x1="0" y1="250" x2="1200" y2="250"/>
+    <line x1="0" y1="300" x2="1200" y2="300"/>
+    <line x1="0" y1="350" x2="1200" y2="350"/>
+    <line x1="100" y1="0" x2="100" y2="400"/>
+    <line x1="200" y1="0" x2="200" y2="400"/>
+    <line x1="300" y1="0" x2="300" y2="400"/>
+    <line x1="400" y1="0" x2="400" y2="400"/>
+    <line x1="500" y1="0" x2="500" y2="400"/>
+    <line x1="600" y1="0" x2="600" y2="400"/>
+    <line x1="700" y1="0" x2="700" y2="400"/>
+    <line x1="800" y1="0" x2="800" y2="400"/>
+    <line x1="900" y1="0" x2="900" y2="400"/>
+    <line x1="1000" y1="0" x2="1000" y2="400"/>
+    <line x1="1100" y1="0" x2="1100" y2="400"/>
+  </g>
+
+  <!-- Decorative envelope icon -->
+  <g transform="translate(120, 140)" filter="url(#glow)">
+    <rect x="0" y="20" width="100" height="70" rx="8" fill="none" stroke="url(#accent)" stroke-width="2.5" opacity="0.9"/>
+    <polyline points="0,20 50,60 100,20" fill="none" stroke="url(#accent)" stroke-width="2.5" opacity="0.9"/>
+    <line x1="0" y1="90" x2="35" y2="60" fill="none" stroke="url(#accent)" stroke-width="2" opacity="0.5"/>
+    <line x1="100" y1="90" x2="65" y2="60" fill="none" stroke="url(#accent)" stroke-width="2" opacity="0.5"/>
+
+    <!-- Ink drop -->
+    <circle cx="85" cy="10" r="8" fill="#6366f1" opacity="0.8"/>
+    <path d="M85 0 Q88 5 85 10 Q82 5 85 0" fill="#8b5cf6" opacity="0.9"/>
+  </g>
+
+  <!-- Main title -->
+  <text x="280" y="190" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="72" font-weight="800" fill="url(#text-gradient)" letter-spacing="-2">
+    InkDrift
+  </text>
+
+  <!-- Tagline -->
+  <text x="283" y="235" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="22" fill="#94a3b8" font-weight="400" letter-spacing="0.5">
+    Simple, self-hosted newsletter service
+  </text>
+
+  <!-- Feature pills -->
+  <g transform="translate(280, 265)">
+    <rect x="0" y="0" width="120" height="30" rx="15" fill="#6366f1" opacity="0.15" stroke="#6366f1" stroke-width="1" stroke-opacity="0.3"/>
+    <text x="60" y="20" text-anchor="middle" font-family="system-ui, sans-serif" font-size="12" fill="#a5b4fc" font-weight="500">Any SMTP</text>
+
+    <rect x="135" y="0" width="120" height="30" rx="15" fill="#6366f1" opacity="0.15" stroke="#6366f1" stroke-width="1" stroke-opacity="0.3"/>
+    <text x="195" y="20" text-anchor="middle" font-family="system-ui, sans-serif" font-size="12" fill="#a5b4fc" font-weight="500">CLI First</text>
+
+    <rect x="270" y="0" width="120" height="30" rx="15" fill="#6366f1" opacity="0.15" stroke="#6366f1" stroke-width="1" stroke-opacity="0.3"/>
+    <text x="330" y="20" text-anchor="middle" font-family="system-ui, sans-serif" font-size="12" fill="#a5b4fc" font-weight="500">REST API</text>
+
+    <rect x="405" y="0" width="140" height="30" rx="15" fill="#6366f1" opacity="0.15" stroke="#6366f1" stroke-width="1" stroke-opacity="0.3"/>
+    <text x="475" y="20" text-anchor="middle" font-family="system-ui, sans-serif" font-size="12" fill="#a5b4fc" font-weight="500">Single Binary</text>
+
+    <rect x="560" y="0" width="120" height="30" rx="15" fill="#6366f1" opacity="0.15" stroke="#6366f1" stroke-width="1" stroke-opacity="0.3"/>
+    <text x="620" y="20" text-anchor="middle" font-family="system-ui, sans-serif" font-size="12" fill="#a5b4fc" font-weight="500">SQLite</text>
+  </g>
+
+  <!-- Accent line -->
+  <rect x="280" y="310" width="60" height="3" rx="1.5" fill="url(#accent)" opacity="0.6"/>
+
+  <!-- Version badge -->
+  <g transform="translate(1060, 350)">
+    <rect x="0" y="0" width="90" height="24" rx="12" fill="#1e293b" stroke="#334155" stroke-width="1"/>
+    <text x="45" y="16" text-anchor="middle" font-family="monospace" font-size="11" fill="#94a3b8">v0.1.0</text>
+  </g>
+</svg>
