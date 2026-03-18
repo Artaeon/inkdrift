@@ -1,0 +1,32 @@
+services:
+  inkdrift:
+    build: .
+    container_name: inkdrift
+    restart: unless-stopped
+    ports:
+      - "${INKDRIFT_PORT:-3377}:3377"
+    volumes:
+      - inkdrift-data:/data
+      - ./inkdrift.toml:/app/inkdrift.toml:ro
+    environment:
+      - INKDRIFT_DB_PATH=/data/inkdrift.db
+      - INKDRIFT_SMTP_HOST=${INKDRIFT_SMTP_HOST:-}
+      - INKDRIFT_SMTP_USERNAME=${INKDRIFT_SMTP_USERNAME:-}
+      - INKDRIFT_SMTP_PASSWORD=${INKDRIFT_SMTP_PASSWORD:-}
+      - INKDRIFT_SMTP_FROM=${INKDRIFT_SMTP_FROM:-}
+      - INKDRIFT_API_KEY=${INKDRIFT_API_KEY:-}
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.inkdrift.rule=Host(`${INKDRIFT_DOMAIN:-newsletter.localhost}`)"
+      - "traefik.http.routers.inkdrift.entrypoints=websecure"
+      - "traefik.http.routers.inkdrift.tls.certresolver=letsencrypt"
+      - "traefik.http.services.inkdrift.loadbalancer.server.port=3377"
+    networks:
+      - traefik_default
+
+volumes:
+  inkdrift-data:
+
+networks:
+  traefik_default:
+    external: true
