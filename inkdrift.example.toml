@@ -1,0 +1,31 @@
+# InkDrift Newsletter Configuration
+# Copy this to inkdrift.toml and fill in your values
+
+[server]
+name = "My Newsletter"
+domain = "newsletter.example.com"     # Your domain (used for unsubscribe links)
+
+[smtp]
+host = "smtp.hostinger.com"           # Your SMTP host
+port = 465                            # 587 for STARTTLS, 465 for TLS
+username = "newsletter@example.com"   # SMTP username
+password = "your-password"            # SMTP password
+from = "newsletter@example.com"       # From email address
+from_name = "My Newsletter"           # From display name
+tls = true
+
+# Common SMTP providers:
+# Hostinger:  smtp.hostinger.com:465
+# Hetzner:    mail.your-server.de:587
+# Contabo:    mail.contabo.de:587
+# Gmail:      smtp.gmail.com:587 (use app password)
+# Outlook:    smtp-mail.outlook.com:587
+
+[api]
+host = "0.0.0.0"
+port = 3377
+api_key = ""                          # Set to protect admin endpoints
+cors = "*"                            # CORS origin (* for any, or your domain)
+
+[db]
+path = "inkdrift.db"                  # SQLite database path
