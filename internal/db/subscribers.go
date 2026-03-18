@@ -8,21 +8,29 @@ import (
 	"github.com/google/uuid"
 )
 
+// AddSubscriber creates a subscriber with the given status.
+// Use "pending" for double opt-in (requires confirmation) or "active" for direct add (CLI/import).
 func (db *DB) AddSubscriber(email, name, listID string) (*Subscriber, error) {
+	return db.AddSubscriberWithStatus(email, name, listID, "active")
+}
+
+func (db *DB) AddSubscriberWithStatus(email, name, listID, status string) (*Subscriber, error) {
 	token := generateToken()
+	confirmed := status == "active"
 	sub := &Subscriber{
 		ID:           uuid.New().String(),
 		Email:        email,
 		Name:         name,
 		ListID:       listID,
-		Status:       "active",
+		Status:       status,
 		ConfirmToken: token,
+		Confirmed:    confirmed,
 	}
 
 	_, err := db.conn.Exec(
-		`INSERT INTO subscribers (id, email, name, list_id, status, confirm_token)
-		 VALUES (?, ?, ?, ?, ?, ?)`,
-		sub.ID, sub.Email, sub.Name, sub.ListID, sub.Status, sub.ConfirmToken,
+		`INSERT INTO subscribers (id, email, name, list_id, status, confirm_token, confirmed)
+		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		sub.ID, sub.Email, sub.Name, sub.ListID, sub.Status, sub.ConfirmToken, confirmed,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("adding subscriber: %w", err)
@@ -168,7 +176,7 @@ func (db *DB) DeleteSubscriber(id string) error {
 
 func (db *DB) ConfirmSubscriber(token string) error {
 	result, err := db.conn.Exec(
-		`UPDATE subscribers SET confirmed = 1 WHERE confirm_token = ?`, token,
+		`UPDATE subscribers SET confirmed = 1, status = 'active' WHERE confirm_token = ? AND status IN ('pending', 'active')`, token,
 	)
 	if err != nil {
 		return fmt.Errorf("confirming subscriber: %w", err)
@@ -178,6 +186,60 @@ func (db *DB) ConfirmSubscriber(token string) error {
 		return fmt.Errorf("invalid confirmation token")
 	}
 	return nil
+}
+
+// MarkBounced marks a subscriber as bounced so they won't receive future emails.
+func (db *DB) MarkBounced(subscriberID string) error {
+	_, err := db.conn.Exec(
+		`UPDATE subscribers SET status = 'bounced' WHERE id = ? AND status = 'active'`,
+		subscriberID,
+	)
+	return err
+}
+
+// GetSubscriberByToken retrieves a subscriber by their confirmation token.
+func (db *DB) GetSubscriberByToken(token string) (*Subscriber, error) {
+	sub := &Subscriber{}
+	err := db.conn.QueryRow(
+		`SELECT id, email, name, list_id, status, confirm_token, confirmed, metadata, subscribed_at, unsubscribed_at, created_at
+		 FROM subscribers WHERE confirm_token = ?`, token,
+	).Scan(&sub.ID, &sub.Email, &sub.Name, &sub.ListID, &sub.Status, &sub.ConfirmToken,
+		&sub.Confirmed, &sub.Metadata, &sub.SubscribedAt, &sub.UnsubscribedAt, &sub.CreatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("getting subscriber by token: %w", err)
+	}
+	return sub, nil
+}
+
+// SearchSubscribers finds subscribers by email or name prefix.
+func (db *DB) SearchSubscribers(listID, query string, limit int) ([]Subscriber, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 50
+	}
+	pattern := query + "%"
+	rows, err := db.conn.Query(
+		`SELECT id, email, name, list_id, status, confirm_token, confirmed, metadata, subscribed_at, unsubscribed_at, created_at
+		 FROM subscribers WHERE list_id = ? AND (email LIKE ? OR name LIKE ?) ORDER BY email LIMIT ?`,
+		listID, pattern, pattern, limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("searching subscribers: %w", err)
+	}
+	defer rows.Close()
+
+	var subs []Subscriber
+	for rows.Next() {
+		var s Subscriber
+		if err := rows.Scan(&s.ID, &s.Email, &s.Name, &s.ListID, &s.Status, &s.ConfirmToken,
+			&s.Confirmed, &s.Metadata, &s.SubscribedAt, &s.UnsubscribedAt, &s.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scanning subscriber: %w", err)
+		}
+		subs = append(subs, s)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating subscribers: %w", err)
+	}
+	return subs, nil
 }
 
 func (db *DB) ImportSubscribers(listID string, entries []struct{ Email, Name string }) (int, error) {

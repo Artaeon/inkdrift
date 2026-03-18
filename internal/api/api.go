@@ -18,6 +18,7 @@ import (
 
 	"github.com/artaeon/inkdrift/internal/config"
 	"github.com/artaeon/inkdrift/internal/db"
+	"github.com/artaeon/inkdrift/internal/smtp"
 )
 
 // RFC 5322 simplified — rejects consecutive dots, leading/trailing dots
@@ -42,17 +43,18 @@ func NewServer(database *db.DB, cfg *config.Config) *Server {
 }
 
 func (s *Server) routes() {
-	s.mux.HandleFunc("POST /api/v1/subscribe", s.cors(s.limiter.middleware(s.handleSubscribe)))
-	s.mux.HandleFunc("GET /api/v1/unsubscribe", s.limiter.middleware(s.handleUnsubscribe))
-	s.mux.HandleFunc("POST /api/v1/unsubscribe", s.limiter.middleware(s.handleUnsubscribe))
-	s.mux.HandleFunc("GET /api/v1/confirm", s.limiter.middleware(s.handleConfirm))
+	s.mux.HandleFunc("POST /api/v1/subscribe", s.logged(s.cors(s.limiter.middleware(s.handleSubscribe))))
+	s.mux.HandleFunc("GET /api/v1/unsubscribe", s.logged(s.limiter.middleware(s.handleUnsubscribe)))
+	s.mux.HandleFunc("POST /api/v1/unsubscribe", s.logged(s.limiter.middleware(s.handleUnsubscribe)))
+	s.mux.HandleFunc("GET /api/v1/confirm", s.logged(s.limiter.middleware(s.handleConfirm)))
 
 	// Admin endpoints (API key required)
-	s.mux.HandleFunc("GET /api/v1/lists", s.cors(s.auth(s.handleListLists)))
-	s.mux.HandleFunc("POST /api/v1/lists", s.cors(s.auth(s.handleCreateList)))
-	s.mux.HandleFunc("GET /api/v1/lists/{id}/subscribers", s.cors(s.auth(s.handleListSubscribers)))
-	s.mux.HandleFunc("GET /api/v1/campaigns", s.cors(s.auth(s.handleListCampaigns)))
-	s.mux.HandleFunc("GET /api/v1/stats", s.cors(s.auth(s.handleStats)))
+	s.mux.HandleFunc("GET /api/v1/lists", s.logged(s.cors(s.auth(s.handleListLists))))
+	s.mux.HandleFunc("POST /api/v1/lists", s.logged(s.cors(s.auth(s.handleCreateList))))
+	s.mux.HandleFunc("GET /api/v1/lists/{id}/subscribers", s.logged(s.cors(s.auth(s.handleListSubscribers))))
+	s.mux.HandleFunc("GET /api/v1/lists/{id}/subscribers/search", s.logged(s.cors(s.auth(s.handleSearchSubscribers))))
+	s.mux.HandleFunc("GET /api/v1/campaigns", s.logged(s.cors(s.auth(s.handleListCampaigns))))
+	s.mux.HandleFunc("GET /api/v1/stats", s.logged(s.cors(s.auth(s.handleStats))))
 
 	// Health check
 	s.mux.HandleFunc("GET /health", s.handleHealth)
@@ -102,6 +104,26 @@ func (s *Server) ListenAndServe() error {
 }
 
 // Middleware
+
+// statusWriter wraps ResponseWriter to capture the status code for logging
+type statusWriter struct {
+	http.ResponseWriter
+	code int
+}
+
+func (sw *statusWriter) WriteHeader(code int) {
+	sw.code = code
+	sw.ResponseWriter.WriteHeader(code)
+}
+
+func (s *Server) logged(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		sw := &statusWriter{ResponseWriter: w, code: http.StatusOK}
+		next(sw, r)
+		log.Printf("%s %s %d %s %s", r.Method, r.URL.Path, sw.code, time.Since(start).Round(time.Millisecond), extractIP(r))
+	}
+}
 
 func (s *Server) cors(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -172,9 +194,12 @@ func (s *Server) handleSubscribe(w http.ResponseWriter, r *http.Request) {
 	req.Email = strings.TrimSpace(strings.ToLower(req.Email))
 	req.Name = strings.TrimSpace(req.Name)
 
-	// Limit name length to prevent abuse
+	// Limit name length to prevent abuse (truncate at rune boundary for valid UTF-8)
 	if len(req.Name) > 200 {
-		req.Name = req.Name[:200]
+		runes := []rune(req.Name)
+		if len(runes) > 200 {
+			req.Name = string(runes[:200])
+		}
 	}
 
 	if req.Email == "" {
@@ -222,15 +247,35 @@ func (s *Server) handleSubscribe(w http.ResponseWriter, r *http.Request) {
 
 	// Check if already subscribed
 	existing, err := s.db.GetSubscriberByEmail(req.Email, listID)
-	if err == nil && existing.Status == "active" {
-		writeJSON(w, http.StatusOK, map[string]string{"message": "already subscribed"})
-		return
+	if err == nil {
+		if existing.Status == "active" {
+			writeJSON(w, http.StatusOK, map[string]string{"message": "already subscribed"})
+			return
+		}
+		if existing.Status == "pending" {
+			// Already pending confirmation — don't create duplicate
+			writeJSON(w, http.StatusOK, map[string]string{"message": "confirmation email already sent, please check your inbox"})
+			return
+		}
 	}
 
-	_, err = s.db.AddSubscriber(req.Email, req.Name, listID)
+	// If SMTP is configured and double opt-in is possible, create as pending
+	status := "active"
+	if s.cfg.SMTPConfigured() && s.cfg.Server.Domain != "" {
+		status = "pending"
+	}
+
+	sub, err := s.db.AddSubscriberWithStatus(req.Email, req.Name, listID, status)
 	if err != nil {
 		log.Printf("subscribe error: %v", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to subscribe"})
+		return
+	}
+
+	// Send confirmation email for double opt-in
+	if status == "pending" {
+		go s.sendConfirmationEmail(sub)
+		writeJSON(w, http.StatusCreated, map[string]string{"message": "please check your email to confirm your subscription"})
 		return
 	}
 
@@ -390,6 +435,45 @@ func (s *Server) handleListSubscribers(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (s *Server) handleSearchSubscribers(w http.ResponseWriter, r *http.Request) {
+	listID := r.PathValue("id")
+	if listID == "" || len(listID) > 64 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid list ID"})
+		return
+	}
+
+	query := r.URL.Query().Get("q")
+	if query == "" || len(query) > 200 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "query parameter 'q' is required (max 200 chars)"})
+		return
+	}
+
+	subs, err := s.db.SearchSubscribers(listID, query, 50)
+	if err != nil {
+		log.Printf("search subscribers error: %v", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
+		return
+	}
+
+	safe := make([]safeSubscriber, len(subs))
+	for i, sub := range subs {
+		safe[i] = safeSubscriber{
+			ID:           sub.ID,
+			Email:        sub.Email,
+			Name:         sub.Name,
+			ListID:       sub.ListID,
+			Status:       sub.Status,
+			Confirmed:    sub.Confirmed,
+			SubscribedAt: sub.SubscribedAt.Format("2006-01-02T15:04:05Z"),
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"subscribers": safe,
+		"total":       len(safe),
+	})
+}
+
 func (s *Server) handleListCampaigns(w http.ResponseWriter, r *http.Request) {
 	campaigns, err := s.db.ListCampaigns()
 	if err != nil {
@@ -463,6 +547,37 @@ func (s *Server) handleOptions(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-API-Key")
 	w.Header().Set("Access-Control-Max-Age", "86400")
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) sendConfirmationEmail(sub *db.Subscriber) {
+	domain := s.cfg.Server.Domain
+	scheme := "https"
+	if domain == "" {
+		domain = fmt.Sprintf("localhost:%d", s.cfg.API.Port)
+		scheme = "http"
+	}
+	confirmURL := fmt.Sprintf("%s://%s/api/v1/confirm?token=%s", scheme, domain, sub.ConfirmToken)
+
+	sender := smtp.NewSender(s.cfg.SMTP)
+	err := sender.Send(smtp.Email{
+		To:      sub.Email,
+		Subject: fmt.Sprintf("Confirm your subscription to %s", s.cfg.Server.Name),
+		HTML: fmt.Sprintf(`<div style="font-family:sans-serif;max-width:500px;margin:0 auto;padding:20px">
+<h2>Confirm your subscription</h2>
+<p>You've been asked to subscribe to <strong>%s</strong>.</p>
+<p>Click the button below to confirm:</p>
+<p style="text-align:center;margin:30px 0">
+  <a href="%s" style="background:#6366f1;color:white;padding:12px 30px;text-decoration:none;border-radius:6px;font-weight:bold">Confirm Subscription</a>
+</p>
+<p style="color:#666;font-size:13px">If you didn't request this, you can safely ignore this email.</p>
+<p style="color:#999;font-size:12px">Or copy this link: %s</p>
+</div>`, s.cfg.Server.Name, confirmURL, confirmURL),
+		Text: fmt.Sprintf("Confirm your subscription to %s\n\nClick here to confirm: %s\n\nIf you didn't request this, ignore this email.",
+			s.cfg.Server.Name, confirmURL),
+	})
+	if err != nil {
+		log.Printf("failed to send confirmation email to %s: %v", sub.Email, err)
+	}
 }
 
 func writeJSON(w http.ResponseWriter, status int, data interface{}) {
