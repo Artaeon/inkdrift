@@ -166,6 +166,7 @@ func (s *Server) auth(next http.HandlerFunc) http.HandlerFunc {
 		}
 
 		if subtle.ConstantTimeCompare([]byte(key), []byte(s.cfg.API.APIKey)) != 1 {
+			log.Printf("AUTH FAIL: %s %s from %s", r.Method, r.URL.Path, ip)
 			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 			return
 		}

@@ -1,0 +1,15 @@
+.git/
+*.db
+*.db-wal
+*.db-shm
+backups/
+campaigns/
+*.toml
+!inkdrift.example.toml
+assets/
+examples/
+.fleetdeck.toml
+.gitignore
+LICENSE
+README.md
+Makefile

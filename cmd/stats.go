@@ -18,10 +18,16 @@ var statsCmd = &cobra.Command{
 		lists, _ := database.ListLists()
 		campaigns, _ := database.ListCampaigns()
 
+		totalActive := 0
+		totalPending := 0
+		totalBounced := 0
 		totalSubscribers := 0
 		for _, l := range lists {
-			count, _ := database.ListSubscriberCount(l.ID)
-			totalSubscribers += count
+			counts, _ := database.GetSubscriberCounts(l.ID)
+			totalActive += counts.Active
+			totalPending += counts.Pending
+			totalBounced += counts.Bounced
+			totalSubscribers += counts.Total
 		}
 
 		totalSent := 0
@@ -49,7 +55,7 @@ var statsCmd = &cobra.Command{
 		fmt.Println(" ---------------------")
 		fmt.Println()
 		fmt.Printf("  Lists:        %d\n", len(lists))
-		fmt.Printf("  Subscribers:  %d (active)\n", totalSubscribers)
+		fmt.Printf("  Subscribers:  %d total (%d active, %d pending, %d bounced)\n", totalSubscribers, totalActive, totalPending, totalBounced)
 		fmt.Printf("  Campaigns:    %d total (%d draft, %d sent)\n", len(campaigns), draftCount, sentCount)
 		fmt.Printf("  Emails sent:  %d\n", totalSent)
 		fmt.Printf("  Failed:       %d\n", totalFailed)
@@ -58,8 +64,8 @@ var statsCmd = &cobra.Command{
 		if len(lists) > 0 {
 			fmt.Println(" Lists:")
 			for _, l := range lists {
-				count, _ := database.ListSubscriberCount(l.ID)
-				fmt.Printf("  - %s: %d subscribers\n", l.Name, count)
+				counts, _ := database.GetSubscriberCounts(l.ID)
+				fmt.Printf("  - %s: %d active, %d pending, %d total\n", l.Name, counts.Active, counts.Pending, counts.Total)
 			}
 		}
 

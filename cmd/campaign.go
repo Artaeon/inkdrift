@@ -56,6 +56,11 @@ var campaignCreateCmd = &cobra.Command{
 			body = readMultiline()
 		}
 
+		if strings.TrimSpace(body) == "" {
+			fmt.Fprintln(os.Stderr, "Error: campaign body cannot be empty")
+			os.Exit(1)
+		}
+
 		listID := resolveListID(database, listName)
 
 		c, err := database.CreateCampaign(name, subject, body, listID)

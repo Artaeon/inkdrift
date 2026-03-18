@@ -66,15 +66,15 @@ var listListCmd = &cobra.Command{
 		}
 
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(w, "ID\tNAME\tSUBSCRIBERS\tDESCRIPTION")
-		fmt.Fprintln(w, "--\t----\t-----------\t-----------")
+		fmt.Fprintln(w, "ID\tNAME\tACTIVE\tPENDING\tTOTAL\tDESCRIPTION")
+		fmt.Fprintln(w, "--\t----\t------\t-------\t-----\t-----------")
 		for _, l := range lists {
-			count, _ := database.ListSubscriberCount(l.ID)
+			counts, _ := database.GetSubscriberCounts(l.ID)
 			id := l.ID
 			if len(id) > 8 {
 				id = id[:8]
 			}
-			fmt.Fprintf(w, "%s\t%s\t%d\t%s\n", id, l.Name, count, l.Description)
+			fmt.Fprintf(w, "%s\t%s\t%d\t%d\t%d\t%s\n", id, l.Name, counts.Active, counts.Pending, counts.Total, l.Description)
 		}
 		w.Flush()
 	},

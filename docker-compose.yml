@@ -15,6 +15,13 @@ services:
       - INKDRIFT_SMTP_PASSWORD=${INKDRIFT_SMTP_PASSWORD:-}
       - INKDRIFT_SMTP_FROM=${INKDRIFT_SMTP_FROM:-}
       - INKDRIFT_API_KEY=${INKDRIFT_API_KEY:-}
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3377/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    stop_grace_period: 15s
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.inkdrift.rule=Host(`${INKDRIFT_DOMAIN:-newsletter.localhost}`)"
