@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/artaeon/inkdrift/internal/config"
+	"github.com/google/uuid"
 )
 
 type Sender struct {
@@ -140,10 +141,21 @@ func (s *Sender) buildMessage(email Email) []byte {
 		fromName = s.cfg.From
 	}
 
+	// Generate unique Message-ID for deliverability
+	domain := s.cfg.Host
+	if parts := strings.SplitN(s.cfg.From, "@", 2); len(parts) == 2 {
+		domain = parts[1]
+	}
+	messageID := fmt.Sprintf("<%s@%s>", uuid.New().String(), domain)
+
 	b.WriteString(fmt.Sprintf("From: %s <%s>\r\n", fromName, s.cfg.From))
 	b.WriteString(fmt.Sprintf("To: %s\r\n", email.To))
 	b.WriteString(fmt.Sprintf("Subject: %s\r\n", email.Subject))
+	b.WriteString(fmt.Sprintf("Date: %s\r\n", time.Now().Format(time.RFC1123Z)))
+	b.WriteString(fmt.Sprintf("Message-ID: %s\r\n", messageID))
 	b.WriteString("MIME-Version: 1.0\r\n")
+	b.WriteString("Precedence: bulk\r\n")
+	b.WriteString(fmt.Sprintf("Return-Path: <%s>\r\n", s.cfg.From))
 
 	for k, v := range email.Headers {
 		b.WriteString(fmt.Sprintf("%s: %s\r\n", k, v))
