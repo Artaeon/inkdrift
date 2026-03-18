@@ -96,6 +96,14 @@ func (db *DB) UpdateCampaignBody(id, subject, body string) (*Campaign, error) {
 	return db.GetCampaign(id)
 }
 
+func (db *DB) SetCampaignTemplate(id, templateID string) error {
+	_, err := db.conn.Exec(
+		`UPDATE campaigns SET template_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+		templateID, id,
+	)
+	return err
+}
+
 func (db *DB) DeleteCampaign(id string) error {
 	_, err := db.conn.Exec(`DELETE FROM send_log WHERE campaign_id = ?`, id)
 	if err != nil {

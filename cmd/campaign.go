@@ -32,6 +32,7 @@ var campaignCreateCmd = &cobra.Command{
 		body, _ := cmd.Flags().GetString("body")
 		bodyFile, _ := cmd.Flags().GetString("body-file")
 		listName, _ := cmd.Flags().GetString("list")
+		templateName, _ := cmd.Flags().GetString("template")
 
 		if name == "" {
 			name = prompt("Campaign name")
@@ -60,6 +61,20 @@ var campaignCreateCmd = &cobra.Command{
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
+		}
+
+		// Attach template if specified
+		if templateName != "" {
+			tmpl, err := database.GetTemplateByName(templateName)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: template '%s' not found, campaign created without template\n", templateName)
+			} else {
+				if err := database.SetCampaignTemplate(c.ID, tmpl.ID); err != nil {
+					fmt.Fprintf(os.Stderr, "Warning: failed to set template: %v\n", err)
+				} else {
+					fmt.Printf("Template: %s\n", tmpl.Name)
+				}
+			}
 		}
 
 		fmt.Printf("Campaign created: %s (ID: %s)\n", c.Name, shortID(c.ID))
@@ -225,6 +240,7 @@ func init() {
 	campaignCreateCmd.Flags().StringP("body", "b", "", "Email body (HTML)")
 	campaignCreateCmd.Flags().String("body-file", "", "Read body from file")
 	campaignCreateCmd.Flags().StringP("list", "l", "", "List name or ID")
+	campaignCreateCmd.Flags().StringP("template", "t", "", "Template name to wrap email content")
 
 	campaignSendCmd.Flags().Bool("dry-run", false, "Preview without sending")
 	campaignDeleteCmd.Flags().BoolP("force", "f", false, "Skip confirmation")
