@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Newsletter Signup</title>
+  <style>
+    .inkdrift-form { max-width: 400px; margin: 40px auto; font-family: sans-serif; }
+    .inkdrift-form input[type="email"] { width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 16px; box-sizing: border-box; }
+    .inkdrift-form button { width: 100%; padding: 12px; background: #1a1a2e; color: white; border: none; border-radius: 6px; font-size: 16px; cursor: pointer; margin-top: 8px; }
+    .inkdrift-form button:hover { background: #2a2a4e; }
+    .inkdrift-form .message { margin-top: 8px; font-size: 14px; }
+    .inkdrift-form .success { color: green; }
+    .inkdrift-form .error { color: red; }
+  </style>
+</head>
+<body>
+  <div class="inkdrift-form">
+    <h3>Subscribe to our newsletter</h3>
+    <form id="inkdrift-subscribe">
+      <input type="email" id="inkdrift-email" placeholder="your@email.com" required>
+      <button type="submit">Subscribe</button>
+      <div id="inkdrift-message" class="message"></div>
+    </form>
+  </div>
+
+  <script>
+    // Change this to your InkDrift API URL
+    const INKDRIFT_API = "http://localhost:3377";
+
+    document.getElementById("inkdrift-subscribe").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const email = document.getElementById("inkdrift-email").value;
+      const msg = document.getElementById("inkdrift-message");
+
+      try {
+        const res = await fetch(`${INKDRIFT_API}/api/v1/subscribe`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email }),
+        });
+
+        const data = await res.json();
+        msg.textContent = data.message || data.error;
+        msg.className = "message " + (res.ok ? "success" : "error");
+
+        if (res.ok) document.getElementById("inkdrift-email").value = "";
+      } catch {
+        msg.textContent = "Failed to connect";
+        msg.className = "message error";
+      }
+    });
+  </script>
+</body>
+</html>
