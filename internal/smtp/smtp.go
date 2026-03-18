@@ -33,7 +33,7 @@ func (s *Sender) Send(email Email) error {
 		return fmt.Errorf("invalid email: %w", err)
 	}
 
-	addr := fmt.Sprintf("%s:%d", s.cfg.Host, s.cfg.Port)
+	addr := net.JoinHostPort(s.cfg.Host, fmt.Sprintf("%d", s.cfg.Port))
 	msg := s.buildMessage(email)
 	auth := smtp.PlainAuth("", s.cfg.Username, s.cfg.Password, s.cfg.Host)
 
@@ -225,7 +225,7 @@ func (s *Sender) buildMessage(email Email) []byte {
 }
 
 func (s *Sender) TestConnection() error {
-	addr := fmt.Sprintf("%s:%d", s.cfg.Host, s.cfg.Port)
+	addr := net.JoinHostPort(s.cfg.Host, fmt.Sprintf("%d", s.cfg.Port))
 	conn, err := net.DialTimeout("tcp", addr, 10*time.Second)
 	if err != nil {
 		return fmt.Errorf("cannot connect to %s: %w", addr, err)
