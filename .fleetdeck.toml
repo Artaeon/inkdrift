@@ -1,0 +1,25 @@
+# FleetDeck deployment configuration for InkDrift
+# Deploy with: fleetdeck deploy . --domain newsletter.yourdomain.com
+
+[project]
+name = "inkdrift"
+template = "custom"
+profile = "bare"
+
+[deploy]
+strategy = "blue-green"
+health_check = "/health"
+health_timeout = "30s"
+
+[build]
+dockerfile = "Dockerfile"
+
+[env]
+INKDRIFT_PORT = "3377"
+# Set these in your .env or fleetdeck env:
+# INKDRIFT_SMTP_HOST = "smtp.hostinger.com"
+# INKDRIFT_SMTP_USERNAME = "newsletter@example.com"
+# INKDRIFT_SMTP_PASSWORD = "your-password"
+# INKDRIFT_SMTP_FROM = "newsletter@example.com"
+# INKDRIFT_API_KEY = "your-api-key"
+# INKDRIFT_DOMAIN = "newsletter.example.com"
