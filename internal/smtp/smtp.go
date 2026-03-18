@@ -29,10 +29,12 @@ func NewSender(cfg config.SMTPConfig) *Sender {
 }
 
 func (s *Sender) Send(email Email) error {
+	if err := email.validate(); err != nil {
+		return fmt.Errorf("invalid email: %w", err)
+	}
+
 	addr := fmt.Sprintf("%s:%d", s.cfg.Host, s.cfg.Port)
-
 	msg := s.buildMessage(email)
-
 	auth := smtp.PlainAuth("", s.cfg.Username, s.cfg.Password, s.cfg.Host)
 
 	if s.cfg.TLS {
@@ -41,8 +43,34 @@ func (s *Sender) Send(email Email) error {
 	return smtp.SendMail(addr, auth, s.cfg.From, []string{email.To}, msg)
 }
 
+func (e Email) validate() error {
+	if e.To == "" {
+		return fmt.Errorf("recipient is required")
+	}
+	if !strings.Contains(e.To, "@") || len(e.To) > 254 {
+		return fmt.Errorf("invalid recipient address")
+	}
+	if e.Subject == "" {
+		return fmt.Errorf("subject is required")
+	}
+	if e.HTML == "" && e.Text == "" {
+		return fmt.Errorf("email body is required")
+	}
+	return nil
+}
+
+// sanitizeHeaderValue strips CR/LF to prevent SMTP header injection
+func sanitizeHeaderValue(v string) string {
+	v = strings.ReplaceAll(v, "\r", "")
+	v = strings.ReplaceAll(v, "\n", "")
+	return v
+}
+
 func (s *Sender) sendTLS(addr string, auth smtp.Auth, to string, msg []byte) error {
-	host, _, _ := net.SplitHostPort(addr)
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return fmt.Errorf("invalid SMTP address: %w", err)
+	}
 
 	tlsConfig := &tls.Config{
 		ServerName: host,
@@ -87,7 +115,10 @@ func (s *Sender) sendTLS(addr string, auth smtp.Auth, to string, msg []byte) err
 }
 
 func (s *Sender) sendSTARTTLS(addr string, auth smtp.Auth, to string, msg []byte) error {
-	host, _, _ := net.SplitHostPort(addr)
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return fmt.Errorf("invalid SMTP address: %w", err)
+	}
 
 	conn, err := net.DialTimeout("tcp", addr, 10*time.Second)
 	if err != nil {
@@ -136,7 +167,7 @@ func (s *Sender) sendSTARTTLS(addr string, auth smtp.Auth, to string, msg []byte
 func (s *Sender) buildMessage(email Email) []byte {
 	var b strings.Builder
 
-	fromName := s.cfg.FromName
+	fromName := sanitizeHeaderValue(s.cfg.FromName)
 	if fromName == "" {
 		fromName = s.cfg.From
 	}
@@ -148,21 +179,27 @@ func (s *Sender) buildMessage(email Email) []byte {
 	}
 	messageID := fmt.Sprintf("<%s@%s>", uuid.New().String(), domain)
 
-	b.WriteString(fmt.Sprintf("From: %s <%s>\r\n", fromName, s.cfg.From))
-	b.WriteString(fmt.Sprintf("To: %s\r\n", email.To))
-	b.WriteString(fmt.Sprintf("Subject: %s\r\n", email.Subject))
+	b.WriteString(fmt.Sprintf("From: %s <%s>\r\n", sanitizeHeaderValue(fromName), sanitizeHeaderValue(s.cfg.From)))
+	b.WriteString(fmt.Sprintf("To: %s\r\n", sanitizeHeaderValue(email.To)))
+	b.WriteString(fmt.Sprintf("Subject: %s\r\n", sanitizeHeaderValue(email.Subject)))
 	b.WriteString(fmt.Sprintf("Date: %s\r\n", time.Now().Format(time.RFC1123Z)))
 	b.WriteString(fmt.Sprintf("Message-ID: %s\r\n", messageID))
 	b.WriteString("MIME-Version: 1.0\r\n")
 	b.WriteString("Precedence: bulk\r\n")
-	b.WriteString(fmt.Sprintf("Return-Path: <%s>\r\n", s.cfg.From))
+	b.WriteString(fmt.Sprintf("Return-Path: <%s>\r\n", sanitizeHeaderValue(s.cfg.From)))
 
+	// Sanitize custom headers to prevent header injection
 	for k, v := range email.Headers {
+		k = sanitizeHeaderValue(k)
+		v = sanitizeHeaderValue(v)
+		if k == "" {
+			continue
+		}
 		b.WriteString(fmt.Sprintf("%s: %s\r\n", k, v))
 	}
 
 	if email.HTML != "" && email.Text != "" {
-		boundary := "inkdrift-boundary-" + fmt.Sprintf("%d", time.Now().UnixNano())
+		boundary := fmt.Sprintf("inkdrift-%s", uuid.New().String())
 		b.WriteString(fmt.Sprintf("Content-Type: multipart/alternative; boundary=\"%s\"\r\n", boundary))
 		b.WriteString("\r\n")
 		b.WriteString(fmt.Sprintf("--%s\r\n", boundary))
