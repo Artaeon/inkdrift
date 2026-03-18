@@ -1,15 +1,19 @@
 package api
 
 import (
+	"context"
 	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net"
 	"net/http"
+	"os"
+	"os/signal"
 	"regexp"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/artaeon/inkdrift/internal/config"
@@ -74,7 +78,27 @@ func (s *Server) ListenAndServe() error {
 		IdleTimeout:       60 * time.Second,
 		MaxHeaderBytes:    1 << 16, // 64KB
 	}
-	return srv.ListenAndServe()
+
+	// Graceful shutdown on interrupt
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- srv.ListenAndServe()
+	}()
+
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
+
+	select {
+	case err := <-errCh:
+		s.limiter.Close()
+		return err
+	case sig := <-quit:
+		log.Printf("Received %s, shutting down gracefully...", sig)
+		s.limiter.Close()
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		return srv.Shutdown(ctx)
+	}
 }
 
 // Middleware
@@ -99,6 +123,16 @@ func (s *Server) auth(next http.HandlerFunc) http.HandlerFunc {
 			// No API key configured — block admin endpoints entirely
 			writeJSON(w, http.StatusForbidden, map[string]string{
 				"error": "admin API key not configured, set api_key in config or INKDRIFT_API_KEY env",
+			})
+			return
+		}
+
+		// Rate limit auth attempts to prevent brute force
+		ip := extractIP(r)
+		if !s.limiter.allow(ip) {
+			w.Header().Set("Retry-After", "60")
+			writeJSON(w, http.StatusTooManyRequests, map[string]string{
+				"error": "rate limit exceeded, try again later",
 			})
 			return
 		}
@@ -153,10 +187,13 @@ func (s *Server) handleSubscribe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Verify domain has MX records (basic deliverability check)
+	// Verify domain has MX records (basic deliverability check) with timeout
 	parts := strings.SplitN(req.Email, "@", 2)
-	if _, err := net.LookupMX(parts[1]); err != nil {
-		if _, err := net.LookupHost(parts[1]); err != nil {
+	resolver := &net.Resolver{}
+	dnsCtx, dnsCancel := context.WithTimeout(r.Context(), 3*time.Second)
+	defer dnsCancel()
+	if _, err := resolver.LookupMX(dnsCtx, parts[1]); err != nil {
+		if _, err := resolver.LookupHost(dnsCtx, parts[1]); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid email domain"})
 			return
 		}
@@ -290,6 +327,17 @@ func (s *Server) handleCreateList(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, list)
 }
 
+// safeSubscriber is a subscriber without sensitive fields for API responses
+type safeSubscriber struct {
+	ID           string  `json:"id"`
+	Email        string  `json:"email"`
+	Name         string  `json:"name"`
+	ListID       string  `json:"list_id"`
+	Status       string  `json:"status"`
+	Confirmed    bool    `json:"confirmed"`
+	SubscribedAt string  `json:"subscribed_at"`
+}
+
 func (s *Server) handleListSubscribers(w http.ResponseWriter, r *http.Request) {
 	listID := r.PathValue("id")
 	if listID == "" || len(listID) > 64 {
@@ -306,7 +354,7 @@ func (s *Server) handleListSubscribers(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if v := r.URL.Query().Get("offset"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 && n <= 1000000 {
 			offset = n
 		}
 	}
@@ -320,8 +368,22 @@ func (s *Server) handleListSubscribers(w http.ResponseWriter, r *http.Request) {
 
 	total, _ := s.db.ListSubscriberCount(listID)
 
+	// Strip sensitive fields (confirm_token, metadata) from response
+	safe := make([]safeSubscriber, len(subs))
+	for i, sub := range subs {
+		safe[i] = safeSubscriber{
+			ID:           sub.ID,
+			Email:        sub.Email,
+			Name:         sub.Name,
+			ListID:       sub.ListID,
+			Status:       sub.Status,
+			Confirmed:    sub.Confirmed,
+			SubscribedAt: sub.SubscribedAt.Format("2006-01-02T15:04:05Z"),
+		}
+	}
+
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"subscribers": subs,
+		"subscribers": safe,
 		"total":       total,
 		"limit":       limit,
 		"offset":      offset,
