@@ -123,9 +123,15 @@ var campaignSendCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		if cfg.SMTP.Host == "" {
+		if !cfg.SMTPConfigured() {
 			fmt.Fprintln(os.Stderr, "SMTP not configured. Run: inkdrift init")
 			os.Exit(1)
+		}
+
+		if cfg.Server.Domain == "" {
+			fmt.Fprintln(os.Stderr, "WARNING: Domain not configured — unsubscribe links will use localhost.")
+			fmt.Fprintln(os.Stderr, "Set domain in inkdrift.toml or INKDRIFT_DOMAIN env for production use.")
+			fmt.Println()
 		}
 
 		list, err := database.GetList(c.ListID)
@@ -135,9 +141,10 @@ var campaignSendCmd = &cobra.Command{
 		}
 
 		count, _ := database.ListSubscriberCount(c.ListID)
-		fmt.Printf("Campaign: %s\n", c.Name)
-		fmt.Printf("Subject:  %s\n", c.Subject)
-		fmt.Printf("List:     %s (%d active subscribers)\n", list.Name, count)
+		fmt.Printf("Campaign:  %s\n", c.Name)
+		fmt.Printf("Subject:   %s\n", c.Subject)
+		fmt.Printf("List:      %s (%d active subscribers)\n", list.Name, count)
+		fmt.Printf("SMTP:      %s:%d (from: %s)\n", cfg.SMTP.Host, cfg.SMTP.Port, cfg.SMTP.From)
 		fmt.Println()
 
 		dry, _ := cmd.Flags().GetBool("dry-run")

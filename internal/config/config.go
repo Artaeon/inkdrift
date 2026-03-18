@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 
 	"github.com/pelletier/go-toml/v2"
 )
@@ -35,10 +36,11 @@ type DBConfig struct {
 }
 
 type APIConfig struct {
-	Host   string `toml:"host"`
-	Port   int    `toml:"port"`
-	APIKey string `toml:"api_key"`
-	CORS   string `toml:"cors"`
+	Host      string `toml:"host"`
+	Port      int    `toml:"port"`
+	APIKey    string `toml:"api_key"`
+	CORS      string `toml:"cors"`
+	RateLimit int    `toml:"rate_limit"` // requests per minute per IP
 }
 
 func DefaultConfig() *Config {
@@ -54,13 +56,16 @@ func DefaultConfig() *Config {
 			Path: "inkdrift.db",
 		},
 		API: APIConfig{
-			Host: "0.0.0.0",
-			Port: 3377,
-			CORS: "*",
+			Host:      "0.0.0.0",
+			Port:      3377,
+			CORS:      "*",
+			RateLimit: 30,
 		},
 	}
 }
 
+// Load loads config from file, falling back to defaults if no file found.
+// Environment variables always override file values.
 func Load(path string) (*Config, error) {
 	if path == "" {
 		path = findConfig()
@@ -82,6 +87,11 @@ func Load(path string) (*Config, error) {
 	return cfg, nil
 }
 
+// ConfigPath returns the path of the loaded config, or "" if using defaults.
+func ConfigPath() string {
+	return findConfig()
+}
+
 func findConfig() string {
 	candidates := []string{
 		"inkdrift.toml",
@@ -97,8 +107,14 @@ func findConfig() string {
 }
 
 func applyEnvOverrides(cfg *Config) {
+	// SMTP
 	if v := os.Getenv("INKDRIFT_SMTP_HOST"); v != "" {
 		cfg.SMTP.Host = v
+	}
+	if v := os.Getenv("INKDRIFT_SMTP_PORT"); v != "" {
+		if port, err := strconv.Atoi(v); err == nil {
+			cfg.SMTP.Port = port
+		}
 	}
 	if v := os.Getenv("INKDRIFT_SMTP_USERNAME"); v != "" {
 		cfg.SMTP.Username = v
@@ -109,12 +125,68 @@ func applyEnvOverrides(cfg *Config) {
 	if v := os.Getenv("INKDRIFT_SMTP_FROM"); v != "" {
 		cfg.SMTP.From = v
 	}
+	if v := os.Getenv("INKDRIFT_SMTP_FROM_NAME"); v != "" {
+		cfg.SMTP.FromName = v
+	}
+	if v := os.Getenv("INKDRIFT_SMTP_TLS"); v != "" {
+		cfg.SMTP.TLS = v == "true" || v == "1" || v == "yes"
+	}
+
+	// API
 	if v := os.Getenv("INKDRIFT_API_KEY"); v != "" {
 		cfg.API.APIKey = v
 	}
+	if v := os.Getenv("INKDRIFT_API_PORT"); v != "" {
+		if port, err := strconv.Atoi(v); err == nil {
+			cfg.API.Port = port
+		}
+	}
+	if v := os.Getenv("INKDRIFT_API_HOST"); v != "" {
+		cfg.API.Host = v
+	}
+	if v := os.Getenv("INKDRIFT_CORS"); v != "" {
+		cfg.API.CORS = v
+	}
+	if v := os.Getenv("INKDRIFT_RATE_LIMIT"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			cfg.API.RateLimit = n
+		}
+	}
+
+	// Server
+	if v := os.Getenv("INKDRIFT_DOMAIN"); v != "" {
+		cfg.Server.Domain = v
+	}
+	if v := os.Getenv("INKDRIFT_NAME"); v != "" {
+		cfg.Server.Name = v
+	}
+
+	// DB
 	if v := os.Getenv("INKDRIFT_DB_PATH"); v != "" {
 		cfg.DB.Path = v
 	}
+}
+
+// SMTPConfigured returns true if SMTP has the minimum required fields.
+func (c *Config) SMTPConfigured() bool {
+	return c.SMTP.Host != "" && c.SMTP.From != ""
+}
+
+// Validate returns warnings (not errors) about missing configuration.
+func (c *Config) Validate() []string {
+	var warnings []string
+
+	if !c.SMTPConfigured() {
+		warnings = append(warnings, "SMTP not configured — emails will fail to send (run: inkdrift init)")
+	}
+	if c.Server.Domain == "" {
+		warnings = append(warnings, "Domain not set — unsubscribe links will use localhost")
+	}
+	if c.API.APIKey == "" {
+		warnings = append(warnings, "API key not set — admin endpoints will be locked (set api_key in config or INKDRIFT_API_KEY env)")
+	}
+
+	return warnings
 }
 
 func Save(cfg *Config, path string) error {

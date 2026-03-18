@@ -31,7 +31,7 @@ func NewServer(database *db.DB, cfg *config.Config) *Server {
 		db:      database,
 		cfg:     cfg,
 		mux:     http.NewServeMux(),
-		limiter: newRateLimiter(10, time.Minute), // 10 requests/min per IP
+		limiter: newRateLimiter(max(cfg.API.RateLimit, 10), time.Minute),
 	}
 	s.routes()
 	return s
@@ -373,7 +373,22 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "service": "inkdrift"})
+	// Actually verify the database is accessible
+	if _, err := s.db.ListLists(); err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"status":  "error",
+			"service": "inkdrift",
+			"error":   "database unavailable",
+		})
+		return
+	}
+
+	result := map[string]interface{}{
+		"status":  "ok",
+		"service": "inkdrift",
+		"smtp":    s.cfg.SMTPConfigured(),
+	}
+	writeJSON(w, http.StatusOK, result)
 }
 
 func (s *Server) handleOptions(w http.ResponseWriter, r *http.Request) {
