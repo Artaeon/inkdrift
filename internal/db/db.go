@@ -3,6 +3,7 @@ package db
 import (
 	"database/sql"
 	"fmt"
+	"os"
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -60,9 +61,15 @@ type Template struct {
 }
 
 func Open(path string) (*DB, error) {
-	conn, err := sql.Open("sqlite3", path+"?_journal_mode=WAL&_busy_timeout=5000")
+	conn, err := sql.Open("sqlite3", path+"?_journal_mode=WAL&_busy_timeout=5000&_foreign_keys=ON")
 	if err != nil {
 		return nil, fmt.Errorf("opening database: %w", err)
+	}
+
+	// Verify connection works
+	if err := conn.Ping(); err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("pinging database: %w", err)
 	}
 
 	db := &DB{conn: conn}
@@ -70,6 +77,9 @@ func Open(path string) (*DB, error) {
 		conn.Close()
 		return nil, fmt.Errorf("migrating database: %w", err)
 	}
+
+	// Set restrictive permissions on database file (owner read/write only)
+	os.Chmod(path, 0o600)
 
 	return db, nil
 }

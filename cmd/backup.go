@@ -123,7 +123,19 @@ var backupRestoreCmd = &cobra.Command{
 		cfg := loadConfig()
 		backupPath := args[0]
 
-		if _, err := os.Stat(backupPath); err != nil {
+		// Validate backup path — must be a .db file, no path traversal
+		absPath, err := filepath.Abs(backupPath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Invalid path: %v\n", err)
+			os.Exit(1)
+		}
+
+		if !strings.HasSuffix(absPath, ".db") {
+			fmt.Fprintln(os.Stderr, "Backup file must be a .db file")
+			os.Exit(1)
+		}
+
+		if _, err := os.Stat(absPath); err != nil {
 			fmt.Fprintf(os.Stderr, "Backup file not found: %s\n", backupPath)
 			os.Exit(1)
 		}
@@ -139,32 +151,20 @@ var backupRestoreCmd = &cobra.Command{
 		// Create a safety backup of current DB before restoring
 		if _, err := os.Stat(cfg.DB.Path); err == nil {
 			safetyPath := cfg.DB.Path + ".pre-restore"
-			src, _ := os.Open(cfg.DB.Path)
-			dst, _ := os.Create(safetyPath)
-			io.Copy(dst, src)
-			src.Close()
-			dst.Close()
-			fmt.Printf("Safety backup: %s\n", safetyPath)
+			if err := copyFile(cfg.DB.Path, safetyPath); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: could not create safety backup: %v\n", err)
+			} else {
+				fmt.Printf("Safety backup: %s\n", safetyPath)
+			}
 		}
 
-		src, err := os.Open(backupPath)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error opening backup: %v\n", err)
-			os.Exit(1)
-		}
-		defer src.Close()
-
-		dst, err := os.Create(cfg.DB.Path)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error creating database: %v\n", err)
-			os.Exit(1)
-		}
-		defer dst.Close()
-
-		if _, err := io.Copy(dst, src); err != nil {
+		if err := copyFile(absPath, cfg.DB.Path); err != nil {
 			fmt.Fprintf(os.Stderr, "Error restoring: %v\n", err)
 			os.Exit(1)
 		}
+
+		// Set restrictive permissions on restored database
+		os.Chmod(cfg.DB.Path, 0o600)
 
 		// Remove stale WAL/SHM files
 		os.Remove(cfg.DB.Path + "-wal")
@@ -184,6 +184,26 @@ func init() {
 	backupCreateCmd.Flags().Int("max", 10, "Maximum number of backups to keep")
 	backupListCmd.Flags().String("dir", "backups", "Backup directory")
 	backupRestoreCmd.Flags().BoolP("force", "f", false, "Skip confirmation")
+}
+
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return fmt.Errorf("opening source: %w", err)
+	}
+	defer in.Close()
+
+	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
+		return fmt.Errorf("creating destination: %w", err)
+	}
+	defer out.Close()
+
+	if _, err := io.Copy(out, in); err != nil {
+		return fmt.Errorf("copying data: %w", err)
+	}
+
+	return out.Close()
 }
 
 func enforceRetention(dir string, maxBackups int) {

@@ -3,6 +3,8 @@ package campaign
 import (
 	"fmt"
 	"html/template"
+	"log"
+	"net/url"
 	"time"
 
 	"github.com/artaeon/inkdrift/internal/config"
@@ -40,6 +42,11 @@ func (s *Sender) Send(campaignID string) error {
 		return fmt.Errorf("campaign is %s, not draft", campaign.Status)
 	}
 
+	list, err := s.db.GetList(campaign.ListID)
+	if err != nil {
+		return fmt.Errorf("getting list: %w", err)
+	}
+
 	subscribers, err := s.db.GetActiveSubscribers(campaign.ListID)
 	if err != nil {
 		return fmt.Errorf("getting subscribers: %w", err)
@@ -49,11 +56,7 @@ func (s *Sender) Send(campaignID string) error {
 		return fmt.Errorf("no active subscribers in list")
 	}
 
-	list, err := s.db.GetList(campaign.ListID)
-	if err != nil {
-		return fmt.Errorf("getting list: %w", err)
-	}
-
+	// Mark as sending AFTER all pre-checks pass
 	if err := s.db.UpdateCampaignStatus(campaignID, "sending"); err != nil {
 		return fmt.Errorf("updating campaign status: %w", err)
 	}
@@ -84,7 +87,9 @@ func (s *Sender) Send(campaignID string) error {
 		html, err := render.RenderHTML(tmplBody, ctx)
 		if err != nil {
 			failedCount++
-			s.db.LogSend(campaignID, sub.ID, "failed", err.Error())
+			if logErr := s.db.LogSend(campaignID, sub.ID, "failed", err.Error()); logErr != nil {
+				log.Printf("failed to log send: %v", logErr)
+			}
 			if s.onSend != nil {
 				s.onSend(sub.Email, err)
 			}
@@ -107,13 +112,17 @@ func (s *Sender) Send(campaignID string) error {
 
 		if err := s.smtp.Send(email); err != nil {
 			failedCount++
-			s.db.LogSend(campaignID, sub.ID, "failed", err.Error())
+			if logErr := s.db.LogSend(campaignID, sub.ID, "failed", err.Error()); logErr != nil {
+				log.Printf("failed to log send: %v", logErr)
+			}
 			if s.onSend != nil {
 				s.onSend(sub.Email, err)
 			}
 		} else {
 			sentCount++
-			s.db.LogSend(campaignID, sub.ID, "sent", "")
+			if logErr := s.db.LogSend(campaignID, sub.ID, "sent", ""); logErr != nil {
+				log.Printf("failed to log send: %v", logErr)
+			}
 			if s.onSend != nil {
 				s.onSend(sub.Email, nil)
 			}
@@ -128,8 +137,12 @@ func (s *Sender) Send(campaignID string) error {
 		status = "failed"
 	}
 
-	s.db.UpdateCampaignStatus(campaignID, status)
-	s.db.UpdateCampaignStats(campaignID, sentCount, failedCount)
+	if err := s.db.UpdateCampaignStatus(campaignID, status); err != nil {
+		log.Printf("failed to update campaign status: %v", err)
+	}
+	if err := s.db.UpdateCampaignStats(campaignID, sentCount, failedCount); err != nil {
+		log.Printf("failed to update campaign stats: %v", err)
+	}
 
 	return nil
 }
@@ -143,5 +156,5 @@ func (s *Sender) unsubscribeURL(token string) string {
 	if domain == fmt.Sprintf("localhost:%d", s.cfg.API.Port) {
 		scheme = "http"
 	}
-	return fmt.Sprintf("%s://%s/api/v1/unsubscribe?token=%s", scheme, domain, token)
+	return fmt.Sprintf("%s://%s/api/v1/unsubscribe?token=%s", scheme, domain, url.QueryEscape(token))
 }
