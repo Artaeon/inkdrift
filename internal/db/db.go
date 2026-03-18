@@ -78,6 +78,13 @@ func Open(path string) (*DB, error) {
 		return nil, fmt.Errorf("pinging database: %w", err)
 	}
 
+	// Run integrity check on startup
+	var integrity string
+	if err := conn.QueryRow("PRAGMA integrity_check").Scan(&integrity); err != nil || integrity != "ok" {
+		conn.Close()
+		return nil, fmt.Errorf("database integrity check failed: %s", integrity)
+	}
+
 	db := &DB{conn: conn}
 	if err := db.migrate(); err != nil {
 		conn.Close()

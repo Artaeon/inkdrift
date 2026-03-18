@@ -274,6 +274,26 @@ func (db *DB) ImportSubscribers(listID string, entries []struct{ Email, Name str
 	return count, nil
 }
 
+// ResubscribePending sets an unsubscribed/bounced subscriber back to pending for double opt-in.
+func (db *DB) ResubscribePending(id string) error {
+	_, err := db.conn.Exec(
+		`UPDATE subscribers SET status = 'pending', confirmed = 0, unsubscribed_at = NULL, confirm_token = ?
+		 WHERE id = ? AND status IN ('unsubscribed', 'bounced')`,
+		generateToken(), id,
+	)
+	return err
+}
+
+// ResubscribeActive sets an unsubscribed/bounced subscriber back to active directly.
+func (db *DB) ResubscribeActive(id string) error {
+	_, err := db.conn.Exec(
+		`UPDATE subscribers SET status = 'active', confirmed = 1, unsubscribed_at = NULL
+		 WHERE id = ? AND status IN ('unsubscribed', 'bounced')`,
+		id,
+	)
+	return err
+}
+
 func generateToken() string {
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {

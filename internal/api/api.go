@@ -254,8 +254,27 @@ func (s *Server) handleSubscribe(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if existing.Status == "pending" {
-			// Already pending confirmation — don't create duplicate
 			writeJSON(w, http.StatusOK, map[string]string{"message": "confirmation email already sent, please check your inbox"})
+			return
+		}
+		// Re-subscribe: unsubscribed or bounced users can sign up again
+		if existing.Status == "unsubscribed" || existing.Status == "bounced" {
+			if s.cfg.SMTPConfigured() && s.cfg.Server.Domain != "" {
+				if err := s.db.ResubscribePending(existing.ID); err != nil {
+					log.Printf("resubscribe error: %v", err)
+					writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to resubscribe"})
+					return
+				}
+				go s.sendConfirmationEmail(existing)
+				writeJSON(w, http.StatusOK, map[string]string{"message": "please check your email to confirm your subscription"})
+			} else {
+				if err := s.db.ResubscribeActive(existing.ID); err != nil {
+					log.Printf("resubscribe error: %v", err)
+					writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to resubscribe"})
+					return
+				}
+				writeJSON(w, http.StatusOK, map[string]string{"message": "resubscribed successfully"})
+			}
 			return
 		}
 	}
