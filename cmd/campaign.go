@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 	"text/tabwriter"
+	"time"
 
 	"github.com/artaeon/inkdrift/internal/campaign"
 	"github.com/artaeon/inkdrift/internal/db"
@@ -124,17 +125,22 @@ var campaignListCmd = &cobra.Command{
 var campaignSendCmd = &cobra.Command{
 	Use:   "send [campaign-id]",
 	Short: "Send a campaign to all subscribers",
-	Args:  cobra.ExactArgs(1),
+	Long: `Send a campaign email to all active subscribers in the campaign's list.
+
+Use --retry to resend only to subscribers that failed in a previous send.
+This is useful when a campaign was interrupted or had partial failures.`,
+	Args: cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		cfg := loadConfig()
 		database := openDB(cfg)
 		defer database.Close()
 
 		campaignID := args[0]
+		retryMode, _ := cmd.Flags().GetBool("retry")
 
 		c, err := findCampaignByPrefix(database, campaignID)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Campaign not found: %s\n", campaignID)
+			fmt.Fprintf(os.Stderr, "Campaign not found: %s (run 'inkdrift campaign ls' to see available campaigns)\n", campaignID)
 			os.Exit(1)
 		}
 
@@ -151,48 +157,73 @@ var campaignSendCmd = &cobra.Command{
 
 		list, err := database.GetList(c.ListID)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			fmt.Fprintf(os.Stderr, "Error: list not found (may have been deleted)\n")
 			os.Exit(1)
 		}
 
 		count, _ := database.ListSubscriberCount(c.ListID)
 		fmt.Printf("Campaign:  %s\n", c.Name)
 		fmt.Printf("Subject:   %s\n", c.Subject)
+		fmt.Printf("Status:    %s\n", c.Status)
 		fmt.Printf("List:      %s (%d active subscribers)\n", list.Name, count)
 		fmt.Printf("SMTP:      %s:%d (from: %s)\n", cfg.SMTP.Host, cfg.SMTP.Port, cfg.SMTP.From)
+		if retryMode {
+			fmt.Printf("Mode:      RETRY (resending to failed/unsent subscribers only)\n")
+		}
 		fmt.Println()
 
 		dry, _ := cmd.Flags().GetBool("dry-run")
 		if dry {
-			fmt.Println("[DRY RUN] Would send to all active subscribers.")
+			if retryMode {
+				fmt.Println("[DRY RUN] Would resend to failed/unsent subscribers only.")
+			} else {
+				fmt.Printf("[DRY RUN] Would send to %d active subscribers.\n", count)
+			}
 			return
 		}
 
-		if !confirm("Send this campaign?") {
+		promptMsg := "Send this campaign?"
+		if retryMode {
+			promptMsg = "Retry failed sends for this campaign?"
+		}
+		if !confirm(promptMsg) {
 			fmt.Println("Cancelled.")
 			return
 		}
 
 		fmt.Println()
-		fmt.Println("Sending...")
 
+		start := time.Now()
 		sender := campaign.NewSender(database, smtp.NewSender(cfg.SMTP), cfg)
-		sender.OnSend(func(email string, err error) {
+		sender.OnSend(func(email string, idx, total int, err error) {
+			pct := float64(idx) / float64(total) * 100
 			if err != nil {
-				fmt.Printf("  FAIL  %s: %v\n", email, err)
+				fmt.Printf("  [%3.0f%%] FAIL  %s: %v\n", pct, email, err)
 			} else {
-				fmt.Printf("  SENT  %s\n", email)
+				fmt.Printf("  [%3.0f%%] SENT  %s\n", pct, email)
 			}
 		})
 
-		if err := sender.Send(c.ID); err != nil {
+		if retryMode {
+			err = sender.ResendFailed(c.ID)
+		} else {
+			err = sender.Send(c.ID)
+		}
+		if err != nil {
 			fmt.Fprintf(os.Stderr, "\nError: %v\n", err)
+			if strings.Contains(err.Error(), "not draft") || strings.Contains(err.Error(), "not in draft") {
+				fmt.Fprintln(os.Stderr, "Hint: use --retry to resend a partial/failed campaign")
+			}
 			os.Exit(1)
 		}
 
 		c, _ = database.GetCampaign(c.ID)
+		elapsed := time.Since(start).Round(time.Second)
 		fmt.Println()
-		fmt.Printf("Done! Sent: %d, Failed: %d\n", c.SentCount, c.FailedCount)
+		fmt.Printf("Done in %s! Sent: %d, Failed: %d, Status: %s\n", elapsed, c.SentCount, c.FailedCount, c.Status)
+		if c.FailedCount > 0 {
+			fmt.Println("Tip: use 'inkdrift campaign send --retry' to resend to failed subscribers")
+		}
 	},
 }
 
@@ -243,6 +274,7 @@ func init() {
 	campaignCreateCmd.Flags().StringP("template", "t", "", "Template name to wrap email content")
 
 	campaignSendCmd.Flags().Bool("dry-run", false, "Preview without sending")
+	campaignSendCmd.Flags().Bool("retry", false, "Resend only to failed/unsent subscribers")
 	campaignDeleteCmd.Flags().BoolP("force", "f", false, "Skip confirmation")
 }
 

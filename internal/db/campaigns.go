@@ -155,6 +155,28 @@ func (db *DB) DeleteCampaign(id string) error {
 	return tx.Commit()
 }
 
+// GetSentSubscriberIDs returns a set of subscriber IDs that have been successfully sent
+// for a given campaign. Used to skip already-sent subscribers during retry.
+func (db *DB) GetSentSubscriberIDs(campaignID string) (map[string]bool, error) {
+	rows, err := db.conn.Query(
+		`SELECT subscriber_id FROM send_log WHERE campaign_id = ? AND status = 'sent'`, campaignID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("querying send log: %w", err)
+	}
+	defer rows.Close()
+
+	result := make(map[string]bool)
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		result[id] = true
+	}
+	return result, rows.Err()
+}
+
 func (db *DB) LogSend(campaignID, subscriberID, status, errMsg string) error {
 	_, err := db.conn.Exec(
 		`INSERT INTO send_log (id, campaign_id, subscriber_id, status, error)

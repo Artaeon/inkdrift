@@ -91,3 +91,42 @@ func (db *DB) ListSubscriberCount(listID string) (int, error) {
 	).Scan(&count)
 	return count, err
 }
+
+// SubscriberCounts returns a breakdown of subscriber counts by status for a list.
+type SubscriberCounts struct {
+	Active       int
+	Pending      int
+	Unsubscribed int
+	Bounced      int
+	Total        int
+}
+
+func (db *DB) GetSubscriberCounts(listID string) (SubscriberCounts, error) {
+	var c SubscriberCounts
+	rows, err := db.conn.Query(
+		`SELECT status, COUNT(*) FROM subscribers WHERE list_id = ? GROUP BY status`, listID,
+	)
+	if err != nil {
+		return c, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var status string
+		var count int
+		if err := rows.Scan(&status, &count); err != nil {
+			return c, err
+		}
+		switch status {
+		case "active":
+			c.Active = count
+		case "pending":
+			c.Pending = count
+		case "unsubscribed":
+			c.Unsubscribed = count
+		case "bounced":
+			c.Bounced = count
+		}
+		c.Total += count
+	}
+	return c, rows.Err()
+}

@@ -18,7 +18,7 @@ type Sender struct {
 	db     *db.DB
 	smtp   *smtp.Sender
 	cfg    *config.Config
-	onSend func(email string, err error) // progress callback
+	onSend func(email string, idx, total int, err error) // progress callback
 }
 
 func NewSender(database *db.DB, smtpSender *smtp.Sender, cfg *config.Config) *Sender {
@@ -29,23 +29,39 @@ func NewSender(database *db.DB, smtpSender *smtp.Sender, cfg *config.Config) *Se
 	}
 }
 
-func (s *Sender) OnSend(fn func(email string, err error)) {
+func (s *Sender) OnSend(fn func(email string, idx, total int, err error)) {
 	s.onSend = fn
 }
 
 func (s *Sender) Send(campaignID string) error {
+	return s.sendToSubscribers(campaignID, false)
+}
+
+// ResendFailed retries sending only to subscribers that failed in a previous send.
+func (s *Sender) ResendFailed(campaignID string) error {
+	return s.sendToSubscribers(campaignID, true)
+}
+
+func (s *Sender) sendToSubscribers(campaignID string, retryOnly bool) error {
 	campaign, err := s.db.GetCampaign(campaignID)
 	if err != nil {
 		return fmt.Errorf("getting campaign: %w", err)
 	}
 
-	if campaign.Status != "draft" {
-		return fmt.Errorf("campaign is %s, not draft", campaign.Status)
+	if retryOnly {
+		// Allow retry for partial/failed/sending campaigns
+		if campaign.Status != "partial" && campaign.Status != "failed" && campaign.Status != "sending" {
+			return fmt.Errorf("campaign is %s — retry is only available for partial, failed, or stuck-sending campaigns", campaign.Status)
+		}
+	} else {
+		if campaign.Status != "draft" {
+			return fmt.Errorf("campaign is %s, not draft", campaign.Status)
+		}
 	}
 
 	list, err := s.db.GetList(campaign.ListID)
 	if err != nil {
-		return fmt.Errorf("getting list: %w", err)
+		return fmt.Errorf("list not found (may have been deleted): %w", err)
 	}
 
 	subscribers, err := s.db.GetActiveSubscribers(campaign.ListID)
@@ -54,12 +70,37 @@ func (s *Sender) Send(campaignID string) error {
 	}
 
 	if len(subscribers) == 0 {
-		return fmt.Errorf("no active subscribers in list")
+		return fmt.Errorf("no active subscribers in list '%s'", list.Name)
 	}
 
-	// Atomically claim campaign for sending (prevents double-send race condition)
-	if err := s.db.ClaimCampaignForSending(campaignID); err != nil {
-		return fmt.Errorf("cannot send: %w", err)
+	// For retry: filter to only subscribers that failed previously
+	if retryOnly {
+		alreadySent, err := s.db.GetSentSubscriberIDs(campaignID)
+		if err != nil {
+			return fmt.Errorf("checking send log: %w", err)
+		}
+		var retry []db.Subscriber
+		for _, sub := range subscribers {
+			if !alreadySent[sub.ID] {
+				retry = append(retry, sub)
+			}
+		}
+		subscribers = retry
+		if len(subscribers) == 0 {
+			return fmt.Errorf("all subscribers already received this campaign")
+		}
+	}
+
+	// Claim campaign for sending (atomically transition from draft)
+	if !retryOnly {
+		if err := s.db.ClaimCampaignForSending(campaignID); err != nil {
+			return fmt.Errorf("cannot send: %w", err)
+		}
+	} else {
+		// For retry, just mark as sending again
+		if err := s.db.UpdateCampaignStatus(campaignID, "sending"); err != nil {
+			return fmt.Errorf("updating status: %w", err)
+		}
 	}
 
 	// Determine the template body
@@ -71,10 +112,11 @@ func (s *Sender) Send(campaignID string) error {
 		}
 	}
 
-	sentCount := 0
+	sentCount := campaign.SentCount
 	failedCount := 0
+	total := len(subscribers)
 
-	for _, sub := range subscribers {
+	for i, sub := range subscribers {
 		ctx := render.Context{
 			SubscriberName:  sub.Name,
 			SubscriberEmail: sub.Email,
@@ -92,7 +134,7 @@ func (s *Sender) Send(campaignID string) error {
 				log.Printf("failed to log send: %v", logErr)
 			}
 			if s.onSend != nil {
-				s.onSend(sub.Email, err)
+				s.onSend(sub.Email, i+1, total, err)
 			}
 			continue
 		}
@@ -116,8 +158,7 @@ func (s *Sender) Send(campaignID string) error {
 			if logErr := s.db.LogSend(campaignID, sub.ID, "failed", err.Error()); logErr != nil {
 				log.Printf("failed to log send: %v", logErr)
 			}
-			// Mark as bounced on permanent SMTP failures (5xx errors)
-			// This prevents re-sending to invalid addresses in future campaigns
+			// Mark as bounced on permanent SMTP failures (5xx codes)
 			errStr := err.Error()
 			if strings.Contains(errStr, "550") || strings.Contains(errStr, "551") ||
 				strings.Contains(errStr, "552") || strings.Contains(errStr, "553") ||
@@ -128,7 +169,7 @@ func (s *Sender) Send(campaignID string) error {
 				}
 			}
 			if s.onSend != nil {
-				s.onSend(sub.Email, err)
+				s.onSend(sub.Email, i+1, total, err)
 			}
 		} else {
 			sentCount++
@@ -136,7 +177,7 @@ func (s *Sender) Send(campaignID string) error {
 				log.Printf("failed to log send: %v", logErr)
 			}
 			if s.onSend != nil {
-				s.onSend(sub.Email, nil)
+				s.onSend(sub.Email, i+1, total, nil)
 			}
 		}
 
