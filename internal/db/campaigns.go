@@ -82,7 +82,7 @@ func (db *DB) ListCampaigns() ([]Campaign, error) {
 }
 
 // validStatuses guards against invalid status values
-var validStatuses = map[string]bool{"draft": true, "sending": true, "sent": true, "failed": true}
+var validStatuses = map[string]bool{"draft": true, "sending": true, "sent": true, "partial": true, "failed": true}
 
 func (db *DB) UpdateCampaignStatus(id, status string) error {
 	if !validStatuses[status] {

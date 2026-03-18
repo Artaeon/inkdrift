@@ -5,6 +5,7 @@ import (
 	"html/template"
 	"log"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/artaeon/inkdrift/internal/config"
@@ -115,6 +116,17 @@ func (s *Sender) Send(campaignID string) error {
 			if logErr := s.db.LogSend(campaignID, sub.ID, "failed", err.Error()); logErr != nil {
 				log.Printf("failed to log send: %v", logErr)
 			}
+			// Mark as bounced on permanent SMTP failures (5xx errors)
+			// This prevents re-sending to invalid addresses in future campaigns
+			errStr := err.Error()
+			if strings.Contains(errStr, "550") || strings.Contains(errStr, "551") ||
+				strings.Contains(errStr, "552") || strings.Contains(errStr, "553") ||
+				strings.Contains(errStr, "554") || strings.Contains(errStr, "User unknown") ||
+				strings.Contains(errStr, "mailbox not found") || strings.Contains(errStr, "does not exist") {
+				if bounceErr := s.db.MarkBounced(sub.ID); bounceErr != nil {
+					log.Printf("failed to mark bounce for %s: %v", sub.Email, bounceErr)
+				}
+			}
 			if s.onSend != nil {
 				s.onSend(sub.Email, err)
 			}
@@ -135,6 +147,8 @@ func (s *Sender) Send(campaignID string) error {
 	status := "sent"
 	if sentCount == 0 {
 		status = "failed"
+	} else if failedCount > 0 {
+		status = "partial"
 	}
 
 	if err := s.db.UpdateCampaignStatus(campaignID, status); err != nil {
