@@ -1,34 +1,42 @@
 package api
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
+	"regexp"
 	"strings"
+	"time"
 
 	"github.com/artaeon/inkdrift/internal/config"
 	"github.com/artaeon/inkdrift/internal/db"
 )
 
+var emailRegex = regexp.MustCompile(`^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$`)
+
 type Server struct {
-	db  *db.DB
-	cfg *config.Config
-	mux *http.ServeMux
+	db      *db.DB
+	cfg     *config.Config
+	mux     *http.ServeMux
+	limiter *rateLimiter
 }
 
 func NewServer(database *db.DB, cfg *config.Config) *Server {
 	s := &Server{
-		db:  database,
-		cfg: cfg,
-		mux: http.NewServeMux(),
+		db:      database,
+		cfg:     cfg,
+		mux:     http.NewServeMux(),
+		limiter: newRateLimiter(10, time.Minute), // 10 subscribes per minute per IP
 	}
 	s.routes()
 	return s
 }
 
 func (s *Server) routes() {
-	s.mux.HandleFunc("POST /api/v1/subscribe", s.cors(s.handleSubscribe))
+	s.mux.HandleFunc("POST /api/v1/subscribe", s.cors(s.limiter.middleware(s.handleSubscribe)))
 	s.mux.HandleFunc("GET /api/v1/unsubscribe", s.handleUnsubscribe)
 	s.mux.HandleFunc("POST /api/v1/unsubscribe", s.handleUnsubscribe)
 	s.mux.HandleFunc("GET /api/v1/confirm", s.handleConfirm)
@@ -83,7 +91,7 @@ func (s *Server) auth(next http.HandlerFunc) http.HandlerFunc {
 			key = strings.TrimPrefix(key, "Bearer ")
 		}
 
-		if key != s.cfg.API.APIKey {
+		if subtle.ConstantTimeCompare([]byte(key), []byte(s.cfg.API.APIKey)) != 1 {
 			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 			return
 		}
@@ -94,6 +102,9 @@ func (s *Server) auth(next http.HandlerFunc) http.HandlerFunc {
 // Handlers
 
 func (s *Server) handleSubscribe(w http.ResponseWriter, r *http.Request) {
+	// Limit request body to 1KB to prevent abuse
+	r.Body = http.MaxBytesReader(w, r.Body, 1024)
+
 	var req struct {
 		Email  string `json:"email"`
 		Name   string `json:"name"`
@@ -106,14 +117,31 @@ func (s *Server) handleSubscribe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	req.Email = strings.TrimSpace(strings.ToLower(req.Email))
+	req.Name = strings.TrimSpace(req.Name)
+
+	// Limit name length to prevent abuse
+	if len(req.Name) > 200 {
+		req.Name = req.Name[:200]
+	}
+
 	if req.Email == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "email is required"})
 		return
 	}
 
-	if !strings.Contains(req.Email, "@") {
+	if !emailRegex.MatchString(req.Email) || len(req.Email) > 254 {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid email address"})
 		return
+	}
+
+	// Verify domain has MX records (basic deliverability check)
+	parts := strings.SplitN(req.Email, "@", 2)
+	if _, err := net.LookupMX(parts[1]); err != nil {
+		if _, err := net.LookupHost(parts[1]); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid email domain"})
+			return
+		}
 	}
 
 	// Resolve list
