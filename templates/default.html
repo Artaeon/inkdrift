@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{.ListName}}</title>
+  <style>
+    body { margin: 0; padding: 0; background-color: #f4f4f7; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }
+    .wrapper { width: 100%; background-color: #f4f4f7; padding: 40px 0; }
+    .container { max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
+    .header { background-color: #1a1a2e; padding: 32px 40px; text-align: center; }
+    .header h1 { color: #ffffff; margin: 0; font-size: 24px; font-weight: 600; }
+    .content { padding: 40px; color: #333333; line-height: 1.6; font-size: 16px; }
+    .content h2 { color: #1a1a2e; margin-top: 0; }
+    .content a { color: #4a90d9; }
+    .footer { padding: 24px 40px; background-color: #f8f9fa; text-align: center; font-size: 13px; color: #999999; }
+    .footer a { color: #999999; text-decoration: underline; }
+    .btn { display: inline-block; padding: 12px 32px; background-color: #4a90d9; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 600; margin: 16px 0; }
+    @media (max-width: 620px) {
+      .container { margin: 0 16px; }
+      .content, .header, .footer { padding: 24px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrapper">
+    <div class="container">
+      <div class="header">
+        <h1>{{.ListName}}</h1>
+      </div>
+      <div class="content">
+        {{.Content}}
+      </div>
+      <div class="footer">
+        <p>You received this email because you subscribed to {{.ListName}}.</p>
+        <p><a href="{{.UnsubscribeURL}}">Unsubscribe</a></p>
+        <p>&copy; {{.Year}} {{.SenderName}}</p>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
