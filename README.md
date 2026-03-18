@@ -167,25 +167,26 @@ curl https://newsletter.example.com/api/v1/stats \
 
 ### Public Endpoints
 
-| Method | Endpoint                     | Description                      |
-|--------|------------------------------|----------------------------------|
-| POST   | `/api/v1/subscribe`          | Subscribe an email to a list     |
-| GET    | `/api/v1/unsubscribe?token=` | Unsubscribe via token            |
-| POST   | `/api/v1/unsubscribe?token=` | Unsubscribe via token            |
-| GET    | `/api/v1/confirm?token=`     | Confirm a subscription           |
+| Method | Endpoint                     | Description                          |
+|--------|------------------------------|--------------------------------------|
+| POST   | `/api/v1/subscribe`          | Subscribe (double opt-in if SMTP configured) |
+| GET    | `/api/v1/unsubscribe?token=` | Unsubscribe via token                |
+| POST   | `/api/v1/unsubscribe?token=` | Unsubscribe via token                |
+| GET    | `/api/v1/confirm?token=`     | Confirm subscription (double opt-in) |
 
 ### Admin Endpoints
 
 Require `X-API-Key` header or `Authorization: Bearer <key>`.
 
-| Method | Endpoint                            | Description              |
-|--------|-------------------------------------|--------------------------|
-| GET    | `/api/v1/lists`                     | List all mailing lists   |
-| POST   | `/api/v1/lists`                     | Create a new list        |
-| GET    | `/api/v1/lists/{id}/subscribers`    | List subscribers (paginated) |
-| GET    | `/api/v1/campaigns`                 | List all campaigns       |
-| GET    | `/api/v1/stats`                     | Aggregate statistics     |
-| GET    | `/health`                           | Health check (no auth)   |
+| Method | Endpoint                                   | Description              |
+|--------|--------------------------------------------|--------------------------|
+| GET    | `/api/v1/lists`                            | List all mailing lists   |
+| POST   | `/api/v1/lists`                            | Create a new list        |
+| GET    | `/api/v1/lists/{id}/subscribers`           | List subscribers (paginated) |
+| GET    | `/api/v1/lists/{id}/subscribers/search?q=` | Search subscribers       |
+| GET    | `/api/v1/campaigns`                        | List all campaigns       |
+| GET    | `/api/v1/stats`                            | Aggregate statistics     |
+| GET    | `/health`                                  | Health check (no auth)   |
 
 #### Subscribe Request Body
 
@@ -204,36 +205,53 @@ Subscriber list supports `?limit=100&offset=0` (max 1000 per page).
 ## CLI Reference
 
 ```
-inkdrift init                                    Interactive setup wizard
-inkdrift serve                                   Start API server
-inkdrift version                                 Print version
-inkdrift stats                                   Show dashboard statistics
-inkdrift test-smtp user@example.com              Test SMTP configuration
-inkdrift check-dns example.com                   Check SPF/DKIM/DMARC/MX records
-inkdrift backup ./backups/                       Backup database
+inkdrift init                                      Interactive setup wizard
+inkdrift serve                                     Start API server
+inkdrift version                                   Print version
+inkdrift stats                                     Show dashboard statistics
+inkdrift test-smtp user@example.com                Test SMTP configuration
+inkdrift check-dns example.com                     Check SPF/DKIM/DMARC/MX records
+inkdrift backup create                             Backup database
+inkdrift backup ls                                 List backups
+inkdrift backup restore <file>                     Restore from backup
 
-inkdrift list create "Name"                      Create a mailing list
-inkdrift list ls                                 List all lists
-inkdrift list delete <id>                        Delete a list
+inkdrift list create "Name"                        Create a mailing list
+inkdrift list ls                                   List all lists
+inkdrift list delete <id>                          Delete a list
 
-inkdrift subscriber add email@example.com        Add a subscriber
-inkdrift subscriber ls --list "Name"             List subscribers
-inkdrift subscriber import contacts.csv          Import from CSV (email,name)
-inkdrift subscriber export -o subscribers.csv    Export to CSV
-inkdrift subscriber remove email@example.com     Unsubscribe
+inkdrift subscriber add email@example.com          Add a subscriber
+inkdrift subscriber ls --list "Name"               List subscribers
+inkdrift subscriber search "query" --list "Name"   Search by email/name
+inkdrift subscriber import contacts.csv            Import from CSV (email,name)
+inkdrift subscriber export -o subscribers.csv      Export to CSV
+inkdrift subscriber remove email@example.com       Unsubscribe
 
-inkdrift campaign init "Campaign Name"           Scaffold campaign directory
-inkdrift campaign create --name "..." --list "..." Create a campaign
-inkdrift campaign ls                             List all campaigns
-inkdrift campaign preview <id>                   Preview rendered HTML
+inkdrift campaign init "Campaign Name"             Scaffold campaign directory
+inkdrift campaign create --name "..." --list "..."   Create a campaign
+inkdrift campaign ls                               List all campaigns
+inkdrift campaign preview <id>                     Preview rendered HTML
+inkdrift campaign test-send <id> email@example.com Send test to one address
 inkdrift campaign update <id> --body-file new.html Update campaign body
-inkdrift campaign send <id>                      Send to all subscribers
-inkdrift campaign send <id> --dry-run            Preview without sending
-inkdrift campaign delete <id>                    Delete a campaign
+inkdrift campaign duplicate <id>                   Duplicate as new draft
+inkdrift campaign send <id>                        Send to all subscribers
+inkdrift campaign send <id> --dry-run              Preview without sending
+inkdrift campaign delete <id>                      Delete a campaign
 
-inkdrift template create "name" -f template.html Create email template
-inkdrift template ls                             List templates
+inkdrift template create "name" -f template.html   Create email template
+inkdrift template ls                               List templates
 ```
+
+## Double Opt-In
+
+When SMTP and domain are configured, InkDrift automatically enables double opt-in:
+
+1. User submits their email via the subscribe API
+2. InkDrift creates the subscriber with `pending` status
+3. A confirmation email is sent with a unique link
+4. User clicks the link, subscriber becomes `active`
+5. Only `active` subscribers receive campaign emails
+
+This satisfies CAN-SPAM and GDPR consent requirements. When SMTP is not configured (e.g., local development or CLI-only usage), subscribers are created as `active` immediately.
 
 ## SMTP Providers
 
@@ -392,14 +410,21 @@ WantedBy=multi-user.target
 
 ## Security
 
+- **Double opt-in** confirms subscriber consent (CAN-SPAM / GDPR compliant)
 - **Constant-time API key comparison** prevents timing attacks
-- **Rate limiting** on all public endpoints (configurable per IP)
+- **Rate limiting** on all public and admin endpoints (configurable per IP)
 - **Request body limits** prevent memory exhaustion (1KB subscribe, 4KB list creation)
+- **Campaign body limits** 1MB max body, 998 char max subject (RFC 5322)
 - **SMTP header injection prevention** strips CR/LF from all header values
 - **Database file permissions** set to 0600 (owner read/write only)
+- **SQLite single-writer mode** prevents database corruption under concurrency
 - **HTTP server timeouts** prevent slowloris and connection exhaustion
-- **Input validation** on all endpoints (email format, length limits, domain MX verification)
+- **Graceful shutdown** drains connections on SIGTERM/SIGINT
+- **Input validation** on all endpoints (email format, length limits, domain MX verification with timeout)
 - **Admin endpoints locked** when no API key is configured (returns 403, not open)
+- **Bounce detection** marks permanently failed addresses to protect sender reputation
+- **Atomic campaign sends** prevent double-send race conditions
+- **Request logging** for all API endpoints (method, path, status, duration, IP)
 
 ## Architecture
 
