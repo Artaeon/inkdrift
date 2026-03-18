@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -15,7 +16,8 @@ import (
 	"github.com/artaeon/inkdrift/internal/db"
 )
 
-var emailRegex = regexp.MustCompile(`^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$`)
+// RFC 5322 simplified — rejects consecutive dots, leading/trailing dots
+var emailRegex = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9._%+\-]*[a-zA-Z0-9])?@[a-zA-Z0-9]([a-zA-Z0-9.\-]*[a-zA-Z0-9])?\.[a-zA-Z]{2,}$`)
 
 type Server struct {
 	db      *db.DB
@@ -29,7 +31,7 @@ func NewServer(database *db.DB, cfg *config.Config) *Server {
 		db:      database,
 		cfg:     cfg,
 		mux:     http.NewServeMux(),
-		limiter: newRateLimiter(10, time.Minute), // 10 subscribes per minute per IP
+		limiter: newRateLimiter(10, time.Minute), // 10 requests/min per IP
 	}
 	s.routes()
 	return s
@@ -37,9 +39,9 @@ func NewServer(database *db.DB, cfg *config.Config) *Server {
 
 func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/v1/subscribe", s.cors(s.limiter.middleware(s.handleSubscribe)))
-	s.mux.HandleFunc("GET /api/v1/unsubscribe", s.handleUnsubscribe)
-	s.mux.HandleFunc("POST /api/v1/unsubscribe", s.handleUnsubscribe)
-	s.mux.HandleFunc("GET /api/v1/confirm", s.handleConfirm)
+	s.mux.HandleFunc("GET /api/v1/unsubscribe", s.limiter.middleware(s.handleUnsubscribe))
+	s.mux.HandleFunc("POST /api/v1/unsubscribe", s.limiter.middleware(s.handleUnsubscribe))
+	s.mux.HandleFunc("GET /api/v1/confirm", s.limiter.middleware(s.handleConfirm))
 
 	// Admin endpoints (API key required)
 	s.mux.HandleFunc("GET /api/v1/lists", s.cors(s.auth(s.handleListLists)))
@@ -62,7 +64,17 @@ func (s *Server) Handler() http.Handler {
 func (s *Server) ListenAndServe() error {
 	addr := fmt.Sprintf("%s:%d", s.cfg.API.Host, s.cfg.API.Port)
 	log.Printf("InkDrift API listening on %s", addr)
-	return http.ListenAndServe(addr, s.mux)
+
+	srv := &http.Server{
+		Addr:              addr,
+		Handler:           s.mux,
+		ReadTimeout:       15 * time.Second,
+		ReadHeaderTimeout: 5 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       60 * time.Second,
+		MaxHeaderBytes:    1 << 16, // 64KB
+	}
+	return srv.ListenAndServe()
 }
 
 // Middleware
@@ -70,6 +82,9 @@ func (s *Server) ListenAndServe() error {
 func (s *Server) cors(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		origin := s.cfg.API.CORS
+		if origin == "" {
+			origin = "localhost"
+		}
 		w.Header().Set("Access-Control-Allow-Origin", origin)
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-API-Key")
@@ -81,7 +96,10 @@ func (s *Server) cors(next http.HandlerFunc) http.HandlerFunc {
 func (s *Server) auth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if s.cfg.API.APIKey == "" {
-			next(w, r)
+			// No API key configured — block admin endpoints entirely
+			writeJSON(w, http.StatusForbidden, map[string]string{
+				"error": "admin API key not configured, set api_key in config or INKDRIFT_API_KEY env",
+			})
 			return
 		}
 
@@ -174,6 +192,7 @@ func (s *Server) handleSubscribe(w http.ResponseWriter, r *http.Request) {
 
 	_, err = s.db.AddSubscriber(req.Email, req.Name, listID)
 	if err != nil {
+		log.Printf("subscribe error: %v", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to subscribe"})
 		return
 	}
@@ -183,8 +202,8 @@ func (s *Server) handleSubscribe(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleUnsubscribe(w http.ResponseWriter, r *http.Request) {
 	token := r.URL.Query().Get("token")
-	if token == "" {
-		http.Error(w, "Missing token", http.StatusBadRequest)
+	if token == "" || len(token) > 128 {
+		http.Error(w, "Invalid request", http.StatusBadRequest)
 		return
 	}
 
@@ -200,8 +219,8 @@ func (s *Server) handleUnsubscribe(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleConfirm(w http.ResponseWriter, r *http.Request) {
 	token := r.URL.Query().Get("token")
-	if token == "" {
-		http.Error(w, "Missing token", http.StatusBadRequest)
+	if token == "" || len(token) > 128 {
+		http.Error(w, "Invalid request", http.StatusBadRequest)
 		return
 	}
 
@@ -218,7 +237,8 @@ func (s *Server) handleConfirm(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleListLists(w http.ResponseWriter, r *http.Request) {
 	lists, err := s.db.ListLists()
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to list"})
+		log.Printf("list lists error: %v", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
 		return
 	}
 
@@ -237,6 +257,8 @@ func (s *Server) handleListLists(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleCreateList(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 4096)
+
 	var req struct {
 		Name        string `json:"name"`
 		Description string `json:"description"`
@@ -247,13 +269,20 @@ func (s *Server) handleCreateList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Name == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "name is required"})
+	req.Name = strings.TrimSpace(req.Name)
+	req.Description = strings.TrimSpace(req.Description)
+
+	if req.Name == "" || len(req.Name) > 200 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "name is required (max 200 chars)"})
 		return
+	}
+	if len(req.Description) > 1000 {
+		req.Description = req.Description[:1000]
 	}
 
 	list, err := s.db.CreateList(req.Name, req.Description)
 	if err != nil {
+		log.Printf("create list error: %v", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to create list"})
 		return
 	}
@@ -263,26 +292,66 @@ func (s *Server) handleCreateList(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleListSubscribers(w http.ResponseWriter, r *http.Request) {
 	listID := r.PathValue("id")
-	subs, err := s.db.ListSubscribers(listID)
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to list subscribers"})
+	if listID == "" || len(listID) > 64 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid list ID"})
 		return
 	}
-	writeJSON(w, http.StatusOK, subs)
+
+	// Pagination
+	limit := 100
+	offset := 0
+	if v := r.URL.Query().Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 1000 {
+			limit = n
+		}
+	}
+	if v := r.URL.Query().Get("offset"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			offset = n
+		}
+	}
+
+	subs, err := s.db.ListSubscribersPaginated(listID, limit, offset)
+	if err != nil {
+		log.Printf("list subscribers error: %v", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
+		return
+	}
+
+	total, _ := s.db.ListSubscriberCount(listID)
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"subscribers": subs,
+		"total":       total,
+		"limit":       limit,
+		"offset":      offset,
+	})
 }
 
 func (s *Server) handleListCampaigns(w http.ResponseWriter, r *http.Request) {
 	campaigns, err := s.db.ListCampaigns()
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to list campaigns"})
+		log.Printf("list campaigns error: %v", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
 		return
 	}
 	writeJSON(w, http.StatusOK, campaigns)
 }
 
 func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
-	lists, _ := s.db.ListLists()
-	campaigns, _ := s.db.ListCampaigns()
+	lists, err := s.db.ListLists()
+	if err != nil {
+		log.Printf("stats error: %v", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
+		return
+	}
+
+	campaigns, err := s.db.ListCampaigns()
+	if err != nil {
+		log.Printf("stats error: %v", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
+		return
+	}
 
 	totalSubscribers := 0
 	for _, l := range lists {
@@ -309,6 +378,9 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleOptions(w http.ResponseWriter, r *http.Request) {
 	origin := s.cfg.API.CORS
+	if origin == "" {
+		origin = "localhost"
+	}
 	w.Header().Set("Access-Control-Allow-Origin", origin)
 	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-API-Key")

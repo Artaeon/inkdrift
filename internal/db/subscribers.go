@@ -75,6 +75,41 @@ func (db *DB) ListSubscribers(listID string) ([]Subscriber, error) {
 		}
 		subs = append(subs, s)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating subscribers: %w", err)
+	}
+	return subs, nil
+}
+
+func (db *DB) ListSubscribersPaginated(listID string, limit, offset int) ([]Subscriber, error) {
+	if limit <= 0 || limit > 1000 {
+		limit = 100
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	rows, err := db.conn.Query(
+		`SELECT id, email, name, list_id, status, confirm_token, confirmed, metadata, subscribed_at, unsubscribed_at, created_at
+		 FROM subscribers WHERE list_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?`, listID, limit, offset,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("listing subscribers: %w", err)
+	}
+	defer rows.Close()
+
+	var subs []Subscriber
+	for rows.Next() {
+		var s Subscriber
+		if err := rows.Scan(&s.ID, &s.Email, &s.Name, &s.ListID, &s.Status, &s.ConfirmToken,
+			&s.Confirmed, &s.Metadata, &s.SubscribedAt, &s.UnsubscribedAt, &s.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scanning subscriber: %w", err)
+		}
+		subs = append(subs, s)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating subscribers: %w", err)
+	}
 	return subs, nil
 }
 
@@ -96,6 +131,9 @@ func (db *DB) GetActiveSubscribers(listID string) ([]Subscriber, error) {
 			return nil, fmt.Errorf("scanning subscriber: %w", err)
 		}
 		subs = append(subs, s)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating subscribers: %w", err)
 	}
 	return subs, nil
 }
