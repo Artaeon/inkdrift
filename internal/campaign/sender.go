@@ -56,9 +56,9 @@ func (s *Sender) Send(campaignID string) error {
 		return fmt.Errorf("no active subscribers in list")
 	}
 
-	// Mark as sending AFTER all pre-checks pass
-	if err := s.db.UpdateCampaignStatus(campaignID, "sending"); err != nil {
-		return fmt.Errorf("updating campaign status: %w", err)
+	// Atomically claim campaign for sending (prevents double-send race condition)
+	if err := s.db.ClaimCampaignForSending(campaignID); err != nil {
+		return fmt.Errorf("cannot send: %w", err)
 	}
 
 	// Determine the template body

@@ -6,7 +6,19 @@ import (
 	"github.com/google/uuid"
 )
 
+const (
+	maxCampaignBodySize = 1 << 20  // 1MB
+	maxSubjectSize      = 998      // RFC 5322 max header line length
+)
+
 func (db *DB) CreateCampaign(name, subject, body, listID string) (*Campaign, error) {
+	if len(body) > maxCampaignBodySize {
+		return nil, fmt.Errorf("campaign body too large (max %d bytes)", maxCampaignBodySize)
+	}
+	if len(subject) > maxSubjectSize {
+		return nil, fmt.Errorf("subject too long (max %d chars)", maxSubjectSize)
+	}
+
 	c := &Campaign{
 		ID:      uuid.New().String(),
 		Name:    name,
@@ -69,12 +81,35 @@ func (db *DB) ListCampaigns() ([]Campaign, error) {
 	return campaigns, nil
 }
 
+// validStatuses guards against invalid status values
+var validStatuses = map[string]bool{"draft": true, "sending": true, "sent": true, "failed": true}
+
 func (db *DB) UpdateCampaignStatus(id, status string) error {
+	if !validStatuses[status] {
+		return fmt.Errorf("invalid campaign status: %s", status)
+	}
 	_, err := db.conn.Exec(
 		`UPDATE campaigns SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
 		status, id,
 	)
 	return err
+}
+
+// ClaimCampaignForSending atomically transitions a campaign from draft to sending.
+// Returns an error if the campaign is not in draft status (prevents double-send race).
+func (db *DB) ClaimCampaignForSending(id string) error {
+	result, err := db.conn.Exec(
+		`UPDATE campaigns SET status = 'sending', updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'draft'`,
+		id,
+	)
+	if err != nil {
+		return fmt.Errorf("claiming campaign: %w", err)
+	}
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		return fmt.Errorf("campaign is not in draft status or does not exist")
+	}
+	return nil
 }
 
 func (db *DB) UpdateCampaignStats(id string, sentCount, failedCount int) error {
@@ -105,12 +140,19 @@ func (db *DB) SetCampaignTemplate(id, templateID string) error {
 }
 
 func (db *DB) DeleteCampaign(id string) error {
-	_, err := db.conn.Exec(`DELETE FROM send_log WHERE campaign_id = ?`, id)
+	tx, err := db.conn.Begin()
 	if err != nil {
+		return fmt.Errorf("starting transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(`DELETE FROM send_log WHERE campaign_id = ?`, id); err != nil {
 		return fmt.Errorf("deleting send logs: %w", err)
 	}
-	_, err = db.conn.Exec(`DELETE FROM campaigns WHERE id = ?`, id)
-	return err
+	if _, err := tx.Exec(`DELETE FROM campaigns WHERE id = ?`, id); err != nil {
+		return fmt.Errorf("deleting campaign: %w", err)
+	}
+	return tx.Commit()
 }
 
 func (db *DB) LogSend(campaignID, subscriberID, status, errMsg string) error {
