@@ -60,14 +60,8 @@ var backupCreateCmd = &cobra.Command{
 		// Also backup WAL file if it exists
 		walPath := cfg.DB.Path + "-wal"
 		if _, err := os.Stat(walPath); err == nil {
-			walSrc, err := os.Open(walPath)
-			if err == nil {
-				walDst, err := os.Create(backupPath + "-wal")
-				if err == nil {
-					io.Copy(walDst, walSrc)
-					walDst.Close()
-				}
-				walSrc.Close()
+			if err := copyFile(walPath, backupPath+"-wal"); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: could not backup WAL file: %v\n", err)
 			}
 		}
 
