@@ -1,7 +1,9 @@
 package api
 
 import (
+	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 )
@@ -11,11 +13,12 @@ type rateLimiter struct {
 	visitors map[string]*visitor
 	rate     int           // max requests
 	window   time.Duration // per window
+	stop     chan struct{}
 }
 
 type visitor struct {
-	count    int
-	resetAt  time.Time
+	count   int
+	resetAt time.Time
 }
 
 func newRateLimiter(rate int, window time.Duration) *rateLimiter {
@@ -23,24 +26,40 @@ func newRateLimiter(rate int, window time.Duration) *rateLimiter {
 		visitors: make(map[string]*visitor),
 		rate:     rate,
 		window:   window,
+		stop:     make(chan struct{}),
 	}
 
 	// Cleanup stale entries every minute
 	go func() {
+		ticker := time.NewTicker(time.Minute)
+		defer ticker.Stop()
 		for {
-			time.Sleep(time.Minute)
-			rl.mu.Lock()
-			now := time.Now()
-			for ip, v := range rl.visitors {
-				if now.After(v.resetAt) {
-					delete(rl.visitors, ip)
-				}
+			select {
+			case <-ticker.C:
+				rl.cleanup()
+			case <-rl.stop:
+				return
 			}
-			rl.mu.Unlock()
 		}
 	}()
 
 	return rl
+}
+
+func (rl *rateLimiter) Close() {
+	close(rl.stop)
+}
+
+func (rl *rateLimiter) cleanup() {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+
+	now := time.Now()
+	for ip, v := range rl.visitors {
+		if now.After(v.resetAt) {
+			delete(rl.visitors, ip)
+		}
+	}
 }
 
 func (rl *rateLimiter) allow(ip string) bool {
@@ -66,17 +85,38 @@ func (rl *rateLimiter) allow(ip string) bool {
 	return true
 }
 
+// extractIP safely extracts client IP, preferring proxy headers behind trusted reverse proxies.
+func extractIP(r *http.Request) string {
+	// X-Forwarded-For can contain multiple IPs; take the first (client IP)
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		parts := strings.SplitN(xff, ",", 2)
+		ip := strings.TrimSpace(parts[0])
+		if net.ParseIP(ip) != nil {
+			return ip
+		}
+	}
+
+	if xri := r.Header.Get("X-Real-IP"); xri != "" {
+		ip := strings.TrimSpace(xri)
+		if net.ParseIP(ip) != nil {
+			return ip
+		}
+	}
+
+	// Fall back to RemoteAddr, stripping port
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
+}
+
 func (rl *rateLimiter) middleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		ip := r.Header.Get("X-Forwarded-For")
-		if ip == "" {
-			ip = r.Header.Get("X-Real-IP")
-		}
-		if ip == "" {
-			ip = r.RemoteAddr
-		}
+		ip := extractIP(r)
 
 		if !rl.allow(ip) {
+			w.Header().Set("Retry-After", "60")
 			writeJSON(w, http.StatusTooManyRequests, map[string]string{
 				"error": "rate limit exceeded, try again later",
 			})
