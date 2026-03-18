@@ -215,9 +215,9 @@ func (db *DB) ImportSubscribers(listID string, entries []struct{ Email, Name str
 func generateToken() string {
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
-		// crypto/rand.Read should never fail on supported platforms,
-		// but fall back to uuid if it does
-		return uuid.New().String() + uuid.New().String()
+		// crypto/rand failure indicates a critical system problem (e.g. /dev/urandom unavailable).
+		// Generating predictable tokens would be a security vulnerability, so we panic.
+		panic(fmt.Sprintf("inkdrift: crypto/rand.Read failed: %v", err))
 	}
 	return hex.EncodeToString(b)
 }

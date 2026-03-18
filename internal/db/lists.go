@@ -69,15 +69,19 @@ func (db *DB) ListLists() ([]List, error) {
 }
 
 func (db *DB) DeleteList(id string) error {
-	_, err := db.conn.Exec(`DELETE FROM subscribers WHERE list_id = ?`, id)
+	tx, err := db.conn.Begin()
 	if err != nil {
+		return fmt.Errorf("starting transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(`DELETE FROM subscribers WHERE list_id = ?`, id); err != nil {
 		return fmt.Errorf("deleting list subscribers: %w", err)
 	}
-	_, err = db.conn.Exec(`DELETE FROM lists WHERE id = ?`, id)
-	if err != nil {
+	if _, err := tx.Exec(`DELETE FROM lists WHERE id = ?`, id); err != nil {
 		return fmt.Errorf("deleting list: %w", err)
 	}
-	return nil
+	return tx.Commit()
 }
 
 func (db *DB) ListSubscriberCount(listID string) (int, error) {

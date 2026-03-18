@@ -66,6 +66,12 @@ func Open(path string) (*DB, error) {
 		return nil, fmt.Errorf("opening database: %w", err)
 	}
 
+	// SQLite performs best with a single writer connection.
+	// Limit open connections to avoid "database is locked" under concurrency.
+	conn.SetMaxOpenConns(1)
+	conn.SetMaxIdleConns(1)
+	conn.SetConnMaxLifetime(0) // don't expire connections
+
 	// Verify connection works
 	if err := conn.Ping(); err != nil {
 		conn.Close()

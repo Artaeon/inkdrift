@@ -6,7 +6,13 @@ import (
 	"github.com/google/uuid"
 )
 
+const maxTemplateBodySize = 2 << 20 // 2MB
+
 func (db *DB) CreateTemplate(name, body string) (*Template, error) {
+	if len(body) > maxTemplateBodySize {
+		return nil, fmt.Errorf("template body too large (max %d bytes)", maxTemplateBodySize)
+	}
+
 	t := &Template{
 		ID:   uuid.New().String(),
 		Name: name,
