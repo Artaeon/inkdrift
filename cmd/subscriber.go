@@ -151,6 +151,7 @@ var subImportCmd = &cobra.Command{
 		}
 
 		var entries []struct{ Email, Name string }
+		skipped := 0
 		for i, record := range records {
 			if len(record) == 0 {
 				continue
@@ -168,6 +169,8 @@ var subImportCmd = &cobra.Command{
 			}
 			if email != "" && strings.Contains(email, "@") && len(email) <= 254 {
 				entries = append(entries, struct{ Email, Name string }{email, name})
+			} else if email != "" {
+				skipped++
 			}
 		}
 
@@ -178,6 +181,12 @@ var subImportCmd = &cobra.Command{
 		}
 
 		fmt.Printf("Imported %d subscribers (from %d entries).\n", count, len(entries))
+		if skipped > 0 {
+			fmt.Printf("Skipped %d invalid email addresses.\n", skipped)
+		}
+		if dup := len(entries) - count; dup > 0 {
+			fmt.Printf("Skipped %d duplicates (already subscribed).\n", dup)
+		}
 	},
 }
 
