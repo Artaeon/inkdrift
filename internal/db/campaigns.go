@@ -82,6 +82,17 @@ func (db *DB) UpdateCampaignStats(id string, sentCount, failedCount int) error {
 	return err
 }
 
+func (db *DB) UpdateCampaignBody(id, subject, body string) (*Campaign, error) {
+	_, err := db.conn.Exec(
+		`UPDATE campaigns SET subject = ?, body = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'draft'`,
+		subject, body, id,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("updating campaign: %w", err)
+	}
+	return db.GetCampaign(id)
+}
+
 func (db *DB) DeleteCampaign(id string) error {
 	_, err := db.conn.Exec(`DELETE FROM send_log WHERE campaign_id = ?`, id)
 	if err != nil {
