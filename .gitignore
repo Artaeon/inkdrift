@@ -1,0 +1,24 @@
+# Binary
+inkdrift
+inkdrift.exe
+
+# Database
+*.db
+*.db-wal
+*.db-shm
+
+# Config with secrets
+config.toml
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build
+dist/
