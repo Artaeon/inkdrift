@@ -1,0 +1,141 @@
+package config
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+
+	"github.com/pelletier/go-toml/v2"
+)
+
+type Config struct {
+	Server ServerConfig `toml:"server"`
+	SMTP   SMTPConfig   `toml:"smtp"`
+	DB     DBConfig     `toml:"db"`
+	API    APIConfig    `toml:"api"`
+}
+
+type ServerConfig struct {
+	Name   string `toml:"name"`
+	Domain string `toml:"domain"`
+}
+
+type SMTPConfig struct {
+	Host     string `toml:"host"`
+	Port     int    `toml:"port"`
+	Username string `toml:"username"`
+	Password string `toml:"password"`
+	From     string `toml:"from"`
+	FromName string `toml:"from_name"`
+	TLS      bool   `toml:"tls"`
+}
+
+type DBConfig struct {
+	Path string `toml:"path"`
+}
+
+type APIConfig struct {
+	Host   string `toml:"host"`
+	Port   int    `toml:"port"`
+	APIKey string `toml:"api_key"`
+	CORS   string `toml:"cors"`
+}
+
+func DefaultConfig() *Config {
+	return &Config{
+		Server: ServerConfig{
+			Name: "InkDrift Newsletter",
+		},
+		SMTP: SMTPConfig{
+			Port: 587,
+			TLS:  true,
+		},
+		DB: DBConfig{
+			Path: "inkdrift.db",
+		},
+		API: APIConfig{
+			Host: "0.0.0.0",
+			Port: 3377,
+			CORS: "*",
+		},
+	}
+}
+
+func Load(path string) (*Config, error) {
+	if path == "" {
+		path = findConfig()
+	}
+
+	cfg := DefaultConfig()
+
+	if path != "" {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil, fmt.Errorf("reading config: %w", err)
+		}
+		if err := toml.Unmarshal(data, cfg); err != nil {
+			return nil, fmt.Errorf("parsing config: %w", err)
+		}
+	}
+
+	applyEnvOverrides(cfg)
+	return cfg, nil
+}
+
+func findConfig() string {
+	candidates := []string{
+		"inkdrift.toml",
+		filepath.Join(os.Getenv("HOME"), ".config", "inkdrift", "config.toml"),
+		"/etc/inkdrift/config.toml",
+	}
+	for _, p := range candidates {
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
+	return ""
+}
+
+func applyEnvOverrides(cfg *Config) {
+	if v := os.Getenv("INKDRIFT_SMTP_HOST"); v != "" {
+		cfg.SMTP.Host = v
+	}
+	if v := os.Getenv("INKDRIFT_SMTP_USERNAME"); v != "" {
+		cfg.SMTP.Username = v
+	}
+	if v := os.Getenv("INKDRIFT_SMTP_PASSWORD"); v != "" {
+		cfg.SMTP.Password = v
+	}
+	if v := os.Getenv("INKDRIFT_SMTP_FROM"); v != "" {
+		cfg.SMTP.From = v
+	}
+	if v := os.Getenv("INKDRIFT_API_KEY"); v != "" {
+		cfg.API.APIKey = v
+	}
+	if v := os.Getenv("INKDRIFT_DB_PATH"); v != "" {
+		cfg.DB.Path = v
+	}
+}
+
+func Save(cfg *Config, path string) error {
+	if path == "" {
+		path = "inkdrift.toml"
+	}
+
+	dir := filepath.Dir(path)
+	if dir != "." {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return fmt.Errorf("creating config directory: %w", err)
+		}
+	}
+
+	data, err := toml.Marshal(cfg)
+	if err != nil {
+		return fmt.Errorf("marshaling config: %w", err)
+	}
+
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		return fmt.Errorf("writing config: %w", err)
+	}
+	return nil
+}
