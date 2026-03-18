@@ -5,6 +5,7 @@ import (
 	"strconv"
 
 	"github.com/artaeon/inkdrift/internal/config"
+	"github.com/artaeon/inkdrift/internal/smtp"
 	"github.com/spf13/cobra"
 )
 
@@ -70,6 +71,21 @@ func runInit(cmd *cobra.Command, args []string) {
 	cfg.DB.Path = promptDefault("Database path", cfg.DB.Path)
 	fmt.Println()
 
+	// Test SMTP connection if configured
+	if cfg.SMTPConfigured() {
+		fmt.Println("[Testing SMTP Connection]")
+		fmt.Printf("Connecting to %s:%d...\n", cfg.SMTP.Host, cfg.SMTP.Port)
+		sender := smtp.NewSender(cfg.SMTP)
+		if err := sender.TestConnection(); err != nil {
+			fmt.Printf("WARNING: SMTP connection failed: %v\n", err)
+			fmt.Println("Your config will be saved but email sending may not work.")
+			fmt.Println("Check your SMTP credentials and try: inkdrift test-smtp your@email.com")
+		} else {
+			fmt.Println("SMTP connection: OK")
+		}
+		fmt.Println()
+	}
+
 	// Save
 	configPath := promptDefault("Save config to", "inkdrift.toml")
 	if err := config.Save(cfg, configPath); err != nil {
@@ -80,6 +96,17 @@ func runInit(cmd *cobra.Command, args []string) {
 	fmt.Println()
 	fmt.Printf("Config saved to %s\n", configPath)
 	fmt.Println()
+
+	// Show warnings
+	warnings := cfg.Validate()
+	if len(warnings) > 0 {
+		fmt.Println("Warnings:")
+		for _, w := range warnings {
+			fmt.Printf("  - %s\n", w)
+		}
+		fmt.Println()
+	}
+
 	fmt.Println("Next steps:")
 	fmt.Println("  1. Create a list:       inkdrift list create \"My Newsletter\"")
 	fmt.Println("  2. Add subscribers:     inkdrift subscriber add user@example.com --list \"My Newsletter\"")
