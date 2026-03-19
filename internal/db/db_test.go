@@ -197,16 +197,21 @@ func TestDeleteListCascade(t *testing.T) {
 func TestDeleteListWithCampaigns(t *testing.T) {
 	db := testDB(t)
 	list, _ := db.CreateList("Test", "")
-	db.AddSubscriber("a@example.com", "", list.ID)
+	sub, err := db.AddSubscriber("a@example.com", "", list.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	c, _ := db.CreateCampaign("Campaign", "Sub", "Body", list.ID)
-	db.LogSend(c.ID, "fake-sub-id", "sent", "")
+	if err := db.LogSend(c.ID, sub.ID, "sent", ""); err != nil {
+		t.Fatalf("LogSend should succeed with valid subscriber: %v", err)
+	}
 
 	// Should succeed even with campaigns and send logs
 	if err := db.DeleteList(list.ID); err != nil {
 		t.Fatalf("delete list with campaigns should succeed: %v", err)
 	}
 
-	_, err := db.GetCampaign(c.ID)
+	_, err = db.GetCampaign(c.ID)
 	if err == nil {
 		t.Error("expected campaign to be deleted with list")
 	}
@@ -215,10 +220,13 @@ func TestDeleteListWithCampaigns(t *testing.T) {
 func TestDeleteCampaignCascade(t *testing.T) {
 	db := testDB(t)
 	list, _ := db.CreateList("Test", "")
+	sub, _ := db.AddSubscriber("test@example.com", "", list.ID)
 	c, _ := db.CreateCampaign("Test", "Sub", "Body", list.ID)
 
-	// Log a send
-	db.LogSend(c.ID, "fake-sub-id", "sent", "")
+	// Log a send with valid subscriber
+	if err := db.LogSend(c.ID, sub.ID, "sent", ""); err != nil {
+		t.Fatalf("LogSend should succeed: %v", err)
+	}
 
 	if err := db.DeleteCampaign(c.ID); err != nil {
 		t.Fatal(err)
@@ -227,6 +235,19 @@ func TestDeleteCampaignCascade(t *testing.T) {
 	_, err := db.GetCampaign(c.ID)
 	if err == nil {
 		t.Error("expected error getting deleted campaign")
+	}
+}
+
+func TestDeleteSubscriberWithSendLog(t *testing.T) {
+	db := testDB(t)
+	list, _ := db.CreateList("Test", "")
+	sub, _ := db.AddSubscriber("test@example.com", "", list.ID)
+	c, _ := db.CreateCampaign("Test", "Sub", "Body", list.ID)
+	db.LogSend(c.ID, sub.ID, "sent", "")
+
+	// Should succeed despite send_log referencing this subscriber
+	if err := db.DeleteSubscriber(sub.ID); err != nil {
+		t.Fatalf("delete subscriber with send_log should succeed: %v", err)
 	}
 }
 

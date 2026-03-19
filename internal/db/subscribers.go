@@ -170,8 +170,19 @@ func (db *DB) UnsubscribeByEmail(email, listID string) error {
 }
 
 func (db *DB) DeleteSubscriber(id string) error {
-	_, err := db.conn.Exec(`DELETE FROM subscribers WHERE id = ?`, id)
-	return err
+	tx, err := db.conn.Begin()
+	if err != nil {
+		return fmt.Errorf("starting transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(`DELETE FROM send_log WHERE subscriber_id = ?`, id); err != nil {
+		return fmt.Errorf("deleting send logs: %w", err)
+	}
+	if _, err := tx.Exec(`DELETE FROM subscribers WHERE id = ?`, id); err != nil {
+		return fmt.Errorf("deleting subscriber: %w", err)
+	}
+	return tx.Commit()
 }
 
 func (db *DB) ConfirmSubscriber(token string) error {
