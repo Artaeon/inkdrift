@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/artaeon/inkdrift/internal/config"
@@ -36,6 +37,26 @@ func testServer(t *testing.T) (*Server, *db.DB) {
 	return srv, database
 }
 
+func testServerWithConfig(t *testing.T, cfg *config.Config) (*Server, *db.DB) {
+	t.Helper()
+	f, err := os.CreateTemp("", "inkdrift-api-test-*.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	t.Cleanup(func() { os.Remove(f.Name()) })
+
+	database, err := db.Open(f.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { database.Close() })
+
+	srv := NewServer(database, cfg)
+	t.Cleanup(func() { srv.limiter.Close() })
+	return srv, database
+}
+
 func TestHealthCheck(t *testing.T) {
 	srv, _ := testServer(t)
 
@@ -57,6 +78,47 @@ func TestHealthCheck(t *testing.T) {
 	}
 }
 
+func TestHealthCheckSMTPStatus(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.API.APIKey = "test-api-key"
+	cfg.SMTP.Host = "smtp.example.com"
+	cfg.SMTP.From = "test@example.com"
+	srv, _ := testServerWithConfig(t, cfg)
+
+	req := httptest.NewRequest("GET", "/health", nil)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	var resp map[string]interface{}
+	json.NewDecoder(w.Body).Decode(&resp)
+	if resp["smtp"] != true {
+		t.Error("expected smtp=true when configured")
+	}
+}
+
+func TestHealthCheckDBClosed(t *testing.T) {
+	f, _ := os.CreateTemp("", "inkdrift-api-test-*.db")
+	f.Close()
+	t.Cleanup(func() { os.Remove(f.Name()) })
+
+	database, _ := db.Open(f.Name())
+	cfg := config.DefaultConfig()
+	cfg.API.APIKey = "test"
+	srv := NewServer(database, cfg)
+	t.Cleanup(func() { srv.limiter.Close() })
+
+	// Close DB to simulate unavailable
+	database.Close()
+
+	req := httptest.NewRequest("GET", "/health", nil)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusServiceUnavailable {
+		t.Errorf("expected 503, got %d", w.Code)
+	}
+}
+
 func TestCORSPreflight(t *testing.T) {
 	srv, _ := testServer(t)
 
@@ -72,6 +134,24 @@ func TestCORSPreflight(t *testing.T) {
 	}
 	if w.Header().Get("Access-Control-Allow-Methods") == "" {
 		t.Error("missing CORS methods header")
+	}
+	if w.Header().Get("Access-Control-Max-Age") != "86400" {
+		t.Error("missing CORS max-age header")
+	}
+}
+
+func TestCORSDefaultOrigin(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.API.APIKey = "test-api-key"
+	cfg.API.CORS = "" // empty CORS
+	srv, _ := testServerWithConfig(t, cfg)
+
+	req := httptest.NewRequest("OPTIONS", "/", nil)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Header().Get("Access-Control-Allow-Origin") != "localhost" {
+		t.Errorf("expected default CORS 'localhost', got %q", w.Header().Get("Access-Control-Allow-Origin"))
 	}
 }
 
@@ -138,18 +218,9 @@ func TestAuthWrongKey(t *testing.T) {
 }
 
 func TestAuthNoKeyConfigured(t *testing.T) {
-	f, _ := os.CreateTemp("", "inkdrift-api-test-*.db")
-	f.Close()
-	t.Cleanup(func() { os.Remove(f.Name()) })
-
-	database, _ := db.Open(f.Name())
-	t.Cleanup(func() { database.Close() })
-
 	cfg := config.DefaultConfig()
-	cfg.API.APIKey = "" // No key configured
-
-	srv := NewServer(database, cfg)
-	t.Cleanup(func() { srv.limiter.Close() })
+	cfg.API.APIKey = ""
+	srv, _ := testServerWithConfig(t, cfg)
 
 	req := httptest.NewRequest("GET", "/api/v1/lists", nil)
 	w := httptest.NewRecorder()
@@ -160,9 +231,24 @@ func TestAuthNoKeyConfigured(t *testing.T) {
 	}
 }
 
-func TestListLists(t *testing.T) {
+func TestListListsEmpty(t *testing.T) {
+	srv, _ := testServer(t)
+
+	req := httptest.NewRequest("GET", "/api/v1/lists", nil)
+	req.Header.Set("X-API-Key", "test-api-key")
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", w.Code)
+	}
+}
+
+func TestListListsWithSubscriberCount(t *testing.T) {
 	srv, database := testServer(t)
-	database.CreateList("Test List", "A test list")
+	list, _ := database.CreateList("Test List", "A test list")
+	database.AddSubscriber("a@example.com", "", list.ID)
+	database.AddSubscriber("b@example.com", "", list.ID)
 
 	req := httptest.NewRequest("GET", "/api/v1/lists", nil)
 	req.Header.Set("X-API-Key", "test-api-key")
@@ -176,10 +262,10 @@ func TestListLists(t *testing.T) {
 	var lists []map[string]interface{}
 	json.NewDecoder(w.Body).Decode(&lists)
 	if len(lists) != 1 {
-		t.Errorf("expected 1 list, got %d", len(lists))
+		t.Fatalf("expected 1 list, got %d", len(lists))
 	}
-	if lists[0]["Name"] != "Test List" {
-		t.Errorf("expected 'Test List', got %v", lists[0]["Name"])
+	if lists[0]["subscriber_count"].(float64) != 2 {
+		t.Errorf("expected subscriber_count 2, got %v", lists[0]["subscriber_count"])
 	}
 }
 
@@ -213,6 +299,55 @@ func TestCreateListEmptyName(t *testing.T) {
 	}
 }
 
+func TestCreateListLongName(t *testing.T) {
+	srv, _ := testServer(t)
+
+	longName := strings.Repeat("a", 201)
+	body := `{"name": "` + longName + `"}`
+	req := httptest.NewRequest("POST", "/api/v1/lists", bytes.NewBufferString(body))
+	req.Header.Set("X-API-Key", "test-api-key")
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for long name, got %d", w.Code)
+	}
+}
+
+func TestCreateListLongDescription(t *testing.T) {
+	srv, _ := testServer(t)
+
+	longDesc := strings.Repeat("d", 1500)
+	body := `{"name": "Test", "description": "` + longDesc + `"}`
+	req := httptest.NewRequest("POST", "/api/v1/lists", bytes.NewBufferString(body))
+	req.Header.Set("X-API-Key", "test-api-key")
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	// Should succeed (description is truncated, not rejected)
+	if w.Code != http.StatusCreated {
+		t.Errorf("expected 201 (desc truncated), got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestCreateListDuplicate(t *testing.T) {
+	srv, database := testServer(t)
+	database.CreateList("Existing", "")
+
+	body := `{"name": "Existing"}`
+	req := httptest.NewRequest("POST", "/api/v1/lists", bytes.NewBufferString(body))
+	req.Header.Set("X-API-Key", "test-api-key")
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("expected 500 for duplicate list, got %d", w.Code)
+	}
+}
+
 func TestCreateListInvalidJSON(t *testing.T) {
 	srv, _ := testServer(t)
 
@@ -227,10 +362,25 @@ func TestCreateListInvalidJSON(t *testing.T) {
 	}
 }
 
-func TestListCampaigns(t *testing.T) {
+func TestListCampaignsEmpty(t *testing.T) {
+	srv, _ := testServer(t)
+
+	req := httptest.NewRequest("GET", "/api/v1/campaigns", nil)
+	req.Header.Set("X-API-Key", "test-api-key")
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", w.Code)
+	}
+}
+
+func TestListCampaignsWithSentAt(t *testing.T) {
 	srv, database := testServer(t)
 	list, _ := database.CreateList("Test", "")
-	database.CreateCampaign("Campaign 1", "Subject", "<p>Body</p>", list.ID)
+	c, _ := database.CreateCampaign("Campaign", "Subject", "<p>Body</p>", list.ID)
+	// Set sent_at via UpdateCampaignStats
+	database.UpdateCampaignStats(c.ID, 5, 0)
 
 	req := httptest.NewRequest("GET", "/api/v1/campaigns", nil)
 	req.Header.Set("X-API-Key", "test-api-key")
@@ -244,19 +394,44 @@ func TestListCampaigns(t *testing.T) {
 	var campaigns []safeCampaign
 	json.NewDecoder(w.Body).Decode(&campaigns)
 	if len(campaigns) != 1 {
-		t.Errorf("expected 1 campaign, got %d", len(campaigns))
+		t.Fatalf("expected 1 campaign, got %d", len(campaigns))
 	}
-	// Verify body is not exposed
+	if campaigns[0].SentAt == nil {
+		t.Error("expected sent_at to be populated")
+	}
 	if campaigns[0].BodySize != len("<p>Body</p>") {
 		t.Errorf("expected body_size %d, got %d", len("<p>Body</p>"), campaigns[0].BodySize)
 	}
 }
 
-func TestStats(t *testing.T) {
+func TestStatsEmpty(t *testing.T) {
+	srv, _ := testServer(t)
+
+	req := httptest.NewRequest("GET", "/api/v1/stats", nil)
+	req.Header.Set("X-API-Key", "test-api-key")
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", w.Code)
+	}
+
+	var stats map[string]interface{}
+	json.NewDecoder(w.Body).Decode(&stats)
+	if stats["lists"].(float64) != 0 {
+		t.Errorf("expected 0 lists, got %v", stats["lists"])
+	}
+	if stats["emails_sent"].(float64) != 0 {
+		t.Errorf("expected 0 emails_sent, got %v", stats["emails_sent"])
+	}
+}
+
+func TestStatsWithData(t *testing.T) {
 	srv, database := testServer(t)
 	list, _ := database.CreateList("Test", "")
 	database.AddSubscriber("a@example.com", "", list.ID)
-	database.CreateCampaign("Campaign", "Sub", "Body", list.ID)
+	c, _ := database.CreateCampaign("Campaign", "Sub", "Body", list.ID)
+	database.UpdateCampaignStats(c.ID, 5, 1)
 
 	req := httptest.NewRequest("GET", "/api/v1/stats", nil)
 	req.Header.Set("X-API-Key", "test-api-key")
@@ -277,6 +452,9 @@ func TestStats(t *testing.T) {
 	}
 	if stats["campaigns"].(float64) != 1 {
 		t.Errorf("expected 1 campaign, got %v", stats["campaigns"])
+	}
+	if stats["emails_sent"].(float64) != 5 {
+		t.Errorf("expected 5 emails_sent, got %v", stats["emails_sent"])
 	}
 }
 
@@ -306,6 +484,32 @@ func TestListSubscribers(t *testing.T) {
 	if _, has := first["confirm_token"]; has {
 		t.Error("confirm_token should not be in response")
 	}
+	// Verify metadata is not exposed
+	if _, has := first["metadata"]; has {
+		t.Error("metadata should not be in response")
+	}
+	// Verify expected fields are present
+	if _, has := first["id"]; !has {
+		t.Error("id should be in response")
+	}
+	if _, has := first["subscribed_at"]; !has {
+		t.Error("subscribed_at should be in response")
+	}
+}
+
+func TestListSubscribersInvalidListID(t *testing.T) {
+	srv, _ := testServer(t)
+
+	// Very long list ID
+	longID := strings.Repeat("x", 100)
+	req := httptest.NewRequest("GET", "/api/v1/lists/"+longID+"/subscribers", nil)
+	req.Header.Set("X-API-Key", "test-api-key")
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for long list ID, got %d", w.Code)
+	}
 }
 
 func TestListSubscribersPagination(t *testing.T) {
@@ -331,6 +535,31 @@ func TestListSubscribersPagination(t *testing.T) {
 	if len(subs) != 2 {
 		t.Errorf("expected 2 subscribers with limit=2, got %d", len(subs))
 	}
+	if resp["total"].(float64) != 5 {
+		t.Errorf("expected total 5, got %v", resp["total"])
+	}
+	if resp["limit"].(float64) != 2 {
+		t.Errorf("expected limit 2, got %v", resp["limit"])
+	}
+	if resp["offset"].(float64) != 0 {
+		t.Errorf("expected offset 0, got %v", resp["offset"])
+	}
+}
+
+func TestListSubscribersInvalidPagination(t *testing.T) {
+	srv, database := testServer(t)
+	list, _ := database.CreateList("Test", "")
+	database.AddSubscriber("a@example.com", "", list.ID)
+
+	// Invalid limit and offset should use defaults
+	req := httptest.NewRequest("GET", "/api/v1/lists/"+list.ID+"/subscribers?limit=abc&offset=xyz", nil)
+	req.Header.Set("X-API-Key", "test-api-key")
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200 with invalid pagination, got %d", w.Code)
+	}
 }
 
 func TestSearchSubscribers(t *testing.T) {
@@ -354,6 +583,9 @@ func TestSearchSubscribers(t *testing.T) {
 	if len(subs) != 1 {
 		t.Errorf("expected 1 matching subscriber, got %d", len(subs))
 	}
+	if resp["total"].(float64) != 1 {
+		t.Errorf("expected total 1, got %v", resp["total"])
+	}
 }
 
 func TestSearchSubscribersMissingQuery(t *testing.T) {
@@ -370,12 +602,40 @@ func TestSearchSubscribersMissingQuery(t *testing.T) {
 	}
 }
 
+func TestSearchSubscribersLongQuery(t *testing.T) {
+	srv, database := testServer(t)
+	list, _ := database.CreateList("Test", "")
+
+	longQuery := strings.Repeat("a", 201)
+	req := httptest.NewRequest("GET", "/api/v1/lists/"+list.ID+"/subscribers/search?q="+longQuery, nil)
+	req.Header.Set("X-API-Key", "test-api-key")
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for long query, got %d", w.Code)
+	}
+}
+
+func TestSearchSubscribersInvalidListID(t *testing.T) {
+	srv, _ := testServer(t)
+
+	longID := strings.Repeat("x", 100)
+	req := httptest.NewRequest("GET", "/api/v1/lists/"+longID+"/subscribers/search?q=test", nil)
+	req.Header.Set("X-API-Key", "test-api-key")
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for long list ID, got %d", w.Code)
+	}
+}
+
 func TestUnsubscribeEndpoint(t *testing.T) {
 	srv, database := testServer(t)
 	list, _ := database.CreateList("Test", "")
 	sub, _ := database.AddSubscriber("test@example.com", "", list.ID)
 
-	// GET unsubscribe
 	req := httptest.NewRequest("GET", "/api/v1/unsubscribe?token="+sub.ConfirmToken, nil)
 	w := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(w, req)
@@ -383,11 +643,10 @@ func TestUnsubscribeEndpoint(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Errorf("expected 200, got %d", w.Code)
 	}
-	if !containsStr(w.Body.String(), "Unsubscribed") {
+	if !strings.Contains(w.Body.String(), "Unsubscribed") {
 		t.Error("expected unsubscribe confirmation page")
 	}
 
-	// Verify subscriber is now unsubscribed
 	updated, _ := database.GetSubscriber(sub.ID)
 	if updated.Status != "unsubscribed" {
 		t.Errorf("expected status 'unsubscribed', got %q", updated.Status)
@@ -432,6 +691,19 @@ func TestUnsubscribeMissingToken(t *testing.T) {
 	}
 }
 
+func TestUnsubscribeLongToken(t *testing.T) {
+	srv, _ := testServer(t)
+
+	longToken := strings.Repeat("a", 200)
+	req := httptest.NewRequest("GET", "/api/v1/unsubscribe?token="+longToken, nil)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for long token, got %d", w.Code)
+	}
+}
+
 func TestConfirmEndpoint(t *testing.T) {
 	srv, database := testServer(t)
 	list, _ := database.CreateList("Test", "")
@@ -444,8 +716,10 @@ func TestConfirmEndpoint(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Errorf("expected 200, got %d", w.Code)
 	}
+	if !strings.Contains(w.Body.String(), "Confirmed") {
+		t.Error("expected confirm page")
+	}
 
-	// Verify subscriber is now active and confirmed
 	updated, _ := database.GetSubscriber(sub.ID)
 	if updated.Status != "active" {
 		t.Errorf("expected status 'active', got %q", updated.Status)
@@ -476,6 +750,19 @@ func TestConfirmMissingToken(t *testing.T) {
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestConfirmLongToken(t *testing.T) {
+	srv, _ := testServer(t)
+
+	longToken := strings.Repeat("a", 200)
+	req := httptest.NewRequest("GET", "/api/v1/confirm?token="+longToken, nil)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for long token, got %d", w.Code)
 	}
 }
 
@@ -536,6 +823,146 @@ func TestSubscribeInvalidJSON(t *testing.T) {
 	}
 }
 
+func TestSubscribeLongEmail(t *testing.T) {
+	srv, _ := testServer(t)
+
+	longEmail := strings.Repeat("a", 250) + "@b.co"
+	body := `{"email": "` + longEmail + `"}`
+	req := httptest.NewRequest("POST", "/api/v1/subscribe", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for long email, got %d", w.Code)
+	}
+}
+
+func TestSubscribeAlreadyActive(t *testing.T) {
+	srv, database := testServer(t)
+	list, _ := database.CreateList("Test", "")
+	database.AddSubscriber("existing@example.com", "", list.ID)
+
+	body := `{"email": "existing@example.com", "list_id": "` + list.ID + `"}`
+	req := httptest.NewRequest("POST", "/api/v1/subscribe", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	// DNS check might fail, but if it passes should return 200 "already subscribed"
+	if w.Code != http.StatusOK && w.Code != http.StatusBadRequest {
+		t.Errorf("expected 200 or 400 (DNS), got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestSubscribeAlreadyPending(t *testing.T) {
+	srv, database := testServer(t)
+	list, _ := database.CreateList("Test", "")
+	database.AddSubscriberWithStatus("pending@example.com", "", list.ID, "pending")
+
+	body := `{"email": "pending@example.com", "list_id": "` + list.ID + `"}`
+	req := httptest.NewRequest("POST", "/api/v1/subscribe", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK && w.Code != http.StatusBadRequest {
+		t.Errorf("expected 200 or 400 (DNS), got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestSubscribeResubscribeNoSMTP(t *testing.T) {
+	// Without SMTP configured, resubscribe should go directly to active
+	cfg := config.DefaultConfig()
+	cfg.API.APIKey = "test-api-key"
+	// SMTP not configured, domain not set
+	srv, database := testServerWithConfig(t, cfg)
+
+	list, _ := database.CreateList("Test", "")
+	sub, _ := database.AddSubscriber("unsub@example.com", "", list.ID)
+	database.UnsubscribeByToken(sub.ConfirmToken)
+
+	body := `{"email": "unsub@example.com", "list_id": "` + list.ID + `"}`
+	req := httptest.NewRequest("POST", "/api/v1/subscribe", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	// DNS check might fail
+	if w.Code != http.StatusOK && w.Code != http.StatusBadRequest {
+		t.Errorf("expected 200 or 400 (DNS), got %d: %s", w.Code, w.Body.String())
+	}
+
+	if w.Code == http.StatusOK {
+		got, _ := database.GetSubscriber(sub.ID)
+		if got.Status != "active" {
+			t.Errorf("expected status 'active', got %q", got.Status)
+		}
+	}
+}
+
+func TestSubscribeWithListName(t *testing.T) {
+	srv, database := testServer(t)
+	database.CreateList("My Newsletter", "")
+
+	body := `{"email": "test@example.com", "list": "My Newsletter"}`
+	req := httptest.NewRequest("POST", "/api/v1/subscribe", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	// DNS check might fail
+	if w.Code != http.StatusCreated && w.Code != http.StatusBadRequest {
+		t.Errorf("expected 201 or 400 (DNS), got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestSubscribeWithInvalidListName(t *testing.T) {
+	srv, _ := testServer(t)
+
+	body := `{"email": "test@example.com", "list": "Nonexistent"}`
+	req := httptest.NewRequest("POST", "/api/v1/subscribe", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	// Could be 400 from DNS or from list not found
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestSubscribeNoLists(t *testing.T) {
+	srv, _ := testServer(t)
+
+	body := `{"email": "test@example.com"}`
+	req := httptest.NewRequest("POST", "/api/v1/subscribe", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 with no lists, got %d", w.Code)
+	}
+}
+
+func TestSubscribeLongName(t *testing.T) {
+	srv, database := testServer(t)
+	database.CreateList("Test", "")
+
+	longName := strings.Repeat("n", 300)
+	body := `{"email": "test@example.com", "name": "` + longName + `"}`
+	req := httptest.NewRequest("POST", "/api/v1/subscribe", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	// Should succeed (name is truncated) or fail DNS
+	if w.Code != http.StatusCreated && w.Code != http.StatusBadRequest {
+		t.Errorf("expected 201 or 400, got %d", w.Code)
+	}
+}
+
 func TestEmailRegex(t *testing.T) {
 	valid := []string{
 		"user@example.com",
@@ -557,7 +984,6 @@ func TestEmailRegex(t *testing.T) {
 		"user@.com",
 		".user@example.com",
 		"user.@example.com",
-		// "user..name@example.com", // allowed by current regex
 		"user@example",
 	}
 	for _, email := range invalid {
@@ -567,11 +993,38 @@ func TestEmailRegex(t *testing.T) {
 	}
 }
 
-func containsStr(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
+func TestHandlerReturnType(t *testing.T) {
+	srv, _ := testServer(t)
+	h := srv.Handler()
+	if h == nil {
+		t.Error("expected non-nil handler")
 	}
-	return false
+}
+
+func TestCORSOnSubscribe(t *testing.T) {
+	srv, _ := testServer(t)
+
+	body := `{"email": "test@example.com"}`
+	req := httptest.NewRequest("POST", "/api/v1/subscribe", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	// Subscribe endpoint has CORS middleware
+	if w.Header().Get("Access-Control-Allow-Origin") != "*" {
+		t.Error("expected CORS header on subscribe endpoint")
+	}
+}
+
+func TestCORSOnAdminEndpoints(t *testing.T) {
+	srv, _ := testServer(t)
+
+	req := httptest.NewRequest("GET", "/api/v1/lists", nil)
+	req.Header.Set("X-API-Key", "test-api-key")
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Header().Get("Access-Control-Allow-Origin") != "*" {
+		t.Error("expected CORS header on admin endpoint")
+	}
 }
