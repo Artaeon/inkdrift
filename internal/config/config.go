@@ -36,11 +36,12 @@ type DBConfig struct {
 }
 
 type APIConfig struct {
-	Host      string `toml:"host"`
-	Port      int    `toml:"port"`
-	APIKey    string `toml:"api_key"`
-	CORS      string `toml:"cors"`
-	RateLimit int    `toml:"rate_limit"` // requests per minute per IP
+	Host       string `toml:"host"`
+	Port       int    `toml:"port"`
+	APIKey     string `toml:"api_key"`
+	CORS       string `toml:"cors"`
+	RateLimit  int    `toml:"rate_limit"`  // requests per minute per IP
+	TrustProxy bool   `toml:"trust_proxy"` // trust X-Forwarded-For headers (enable behind reverse proxy)
 }
 
 func DefaultConfig() *Config {
@@ -151,6 +152,9 @@ func applyEnvOverrides(cfg *Config) {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			cfg.API.RateLimit = n
 		}
+	}
+	if v := os.Getenv("INKDRIFT_TRUST_PROXY"); v != "" {
+		cfg.API.TrustProxy = v == "true" || v == "1"
 	}
 
 	// Server

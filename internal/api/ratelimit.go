@@ -9,11 +9,12 @@ import (
 )
 
 type rateLimiter struct {
-	mu       sync.Mutex
-	visitors map[string]*visitor
-	rate     int           // max requests
-	window   time.Duration // per window
-	stop     chan struct{}
+	mu         sync.Mutex
+	visitors   map[string]*visitor
+	rate       int           // max requests
+	window     time.Duration // per window
+	stop       chan struct{}
+	trustProxy bool
 }
 
 type visitor struct {
@@ -21,12 +22,13 @@ type visitor struct {
 	resetAt time.Time
 }
 
-func newRateLimiter(rate int, window time.Duration) *rateLimiter {
+func newRateLimiter(rate int, window time.Duration, trustProxy bool) *rateLimiter {
 	rl := &rateLimiter{
-		visitors: make(map[string]*visitor),
-		rate:     rate,
-		window:   window,
-		stop:     make(chan struct{}),
+		visitors:   make(map[string]*visitor),
+		rate:       rate,
+		window:     window,
+		stop:       make(chan struct{}),
+		trustProxy: trustProxy,
 	}
 
 	// Cleanup stale entries every minute
@@ -85,21 +87,24 @@ func (rl *rateLimiter) allow(ip string) bool {
 	return true
 }
 
-// extractIP safely extracts client IP, preferring proxy headers behind trusted reverse proxies.
-func extractIP(r *http.Request) string {
-	// X-Forwarded-For can contain multiple IPs; take the first (client IP)
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		parts := strings.SplitN(xff, ",", 2)
-		ip := strings.TrimSpace(parts[0])
-		if net.ParseIP(ip) != nil {
-			return ip
+// extractIP safely extracts client IP from the request.
+// When trustProxy is true (behind a reverse proxy like Traefik/nginx), it reads
+// X-Forwarded-For and X-Real-IP headers. When false, it uses RemoteAddr only,
+// preventing attackers from spoofing their IP to bypass rate limits.
+func extractIP(r *http.Request, trustProxy bool) string {
+	if trustProxy {
+		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+			parts := strings.SplitN(xff, ",", 2)
+			ip := strings.TrimSpace(parts[0])
+			if net.ParseIP(ip) != nil {
+				return ip
+			}
 		}
-	}
-
-	if xri := r.Header.Get("X-Real-IP"); xri != "" {
-		ip := strings.TrimSpace(xri)
-		if net.ParseIP(ip) != nil {
-			return ip
+		if xri := r.Header.Get("X-Real-IP"); xri != "" {
+			ip := strings.TrimSpace(xri)
+			if net.ParseIP(ip) != nil {
+				return ip
+			}
 		}
 	}
 
@@ -113,7 +118,7 @@ func extractIP(r *http.Request) string {
 
 func (rl *rateLimiter) middleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		ip := extractIP(r)
+		ip := extractIP(r, rl.trustProxy)
 
 		if !rl.allow(ip) {
 			w.Header().Set("Retry-After", "60")
