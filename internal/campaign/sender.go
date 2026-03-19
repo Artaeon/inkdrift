@@ -14,14 +14,19 @@ import (
 	"github.com/artaeon/inkdrift/internal/smtp"
 )
 
+// EmailSender abstracts email sending for testability.
+type EmailSender interface {
+	Send(email smtp.Email) error
+}
+
 type Sender struct {
 	db     *db.DB
-	smtp   *smtp.Sender
+	smtp   EmailSender
 	cfg    *config.Config
 	onSend func(email string, idx, total int, err error) // progress callback
 }
 
-func NewSender(database *db.DB, smtpSender *smtp.Sender, cfg *config.Config) *Sender {
+func NewSender(database *db.DB, smtpSender EmailSender, cfg *config.Config) *Sender {
 	return &Sender{
 		db:   database,
 		smtp: smtpSender,
