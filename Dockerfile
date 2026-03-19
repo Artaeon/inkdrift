@@ -11,14 +11,17 @@ RUN CGO_ENABLED=1 go build -ldflags="-s -w" -o inkdrift .
 
 FROM alpine:3.21
 
-RUN apk add --no-cache ca-certificates sqlite-libs
+RUN apk add --no-cache ca-certificates sqlite-libs tzdata && \
+    addgroup -S inkdrift && adduser -S inkdrift -G inkdrift
 
 WORKDIR /app
 
 COPY --from=builder /app/inkdrift .
 COPY templates/ ./templates/
 
-RUN mkdir -p /data
+RUN mkdir -p /data && chown inkdrift:inkdrift /data
+
+USER inkdrift
 
 ENV INKDRIFT_DB_PATH=/data/inkdrift.db
 
