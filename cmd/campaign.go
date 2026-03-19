@@ -313,10 +313,17 @@ func findCampaignByPrefix(database *db.DB, prefix string) (*db.Campaign, error) 
 		return nil, err
 	}
 
+	var matches []db.Campaign
 	for _, c := range campaigns {
 		if strings.HasPrefix(c.ID, prefix) {
-			return &c, nil
+			matches = append(matches, c)
 		}
+	}
+	if len(matches) == 1 {
+		return &matches[0], nil
+	}
+	if len(matches) > 1 {
+		return nil, fmt.Errorf("ambiguous prefix %q matches %d campaigns, use a longer ID", prefix, len(matches))
 	}
 
 	return nil, fmt.Errorf("not found")

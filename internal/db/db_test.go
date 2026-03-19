@@ -194,6 +194,24 @@ func TestDeleteListCascade(t *testing.T) {
 	}
 }
 
+func TestDeleteListWithCampaigns(t *testing.T) {
+	db := testDB(t)
+	list, _ := db.CreateList("Test", "")
+	db.AddSubscriber("a@example.com", "", list.ID)
+	c, _ := db.CreateCampaign("Campaign", "Sub", "Body", list.ID)
+	db.LogSend(c.ID, "fake-sub-id", "sent", "")
+
+	// Should succeed even with campaigns and send logs
+	if err := db.DeleteList(list.ID); err != nil {
+		t.Fatalf("delete list with campaigns should succeed: %v", err)
+	}
+
+	_, err := db.GetCampaign(c.ID)
+	if err == nil {
+		t.Error("expected campaign to be deleted with list")
+	}
+}
+
 func TestDeleteCampaignCascade(t *testing.T) {
 	db := testDB(t)
 	list, _ := db.CreateList("Test", "")

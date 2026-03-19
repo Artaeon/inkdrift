@@ -75,6 +75,16 @@ func (db *DB) DeleteList(id string) error {
 	}
 	defer tx.Rollback()
 
+	// Delete send logs for campaigns on this list
+	if _, err := tx.Exec(
+		`DELETE FROM send_log WHERE campaign_id IN (SELECT id FROM campaigns WHERE list_id = ?)`, id,
+	); err != nil {
+		return fmt.Errorf("deleting send logs: %w", err)
+	}
+	// Delete campaigns on this list
+	if _, err := tx.Exec(`DELETE FROM campaigns WHERE list_id = ?`, id); err != nil {
+		return fmt.Errorf("deleting list campaigns: %w", err)
+	}
 	if _, err := tx.Exec(`DELETE FROM subscribers WHERE list_id = ?`, id); err != nil {
 		return fmt.Errorf("deleting list subscribers: %w", err)
 	}
