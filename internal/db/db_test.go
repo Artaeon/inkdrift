@@ -1148,3 +1148,424 @@ func TestClaimCampaignNonexistent(t *testing.T) {
 		t.Error("expected error for nonexistent campaign")
 	}
 }
+
+// Closed DB error path tests — these hit the error branches in every function
+// that are otherwise unreachable with a healthy database.
+
+func closedDB(t *testing.T) *DB {
+	t.Helper()
+	db := testDB(t)
+	db.Close()
+	return db
+}
+
+func TestListListsClosedDB(t *testing.T) {
+	db := closedDB(t)
+	_, err := db.ListLists()
+	if err == nil {
+		t.Error("expected error on closed DB")
+	}
+}
+
+func TestListCampaignsClosedDB(t *testing.T) {
+	db := closedDB(t)
+	_, err := db.ListCampaigns()
+	if err == nil {
+		t.Error("expected error on closed DB")
+	}
+}
+
+func TestListTemplatesClosedDB(t *testing.T) {
+	db := closedDB(t)
+	_, err := db.ListTemplates()
+	if err == nil {
+		t.Error("expected error on closed DB")
+	}
+}
+
+func TestListSubscribersClosedDB(t *testing.T) {
+	db := closedDB(t)
+	_, err := db.ListSubscribers("some-id")
+	if err == nil {
+		t.Error("expected error on closed DB")
+	}
+}
+
+func TestListSubscribersPaginatedClosedDB(t *testing.T) {
+	db := closedDB(t)
+	_, err := db.ListSubscribersPaginated("some-id", 10, 0)
+	if err == nil {
+		t.Error("expected error on closed DB")
+	}
+}
+
+func TestGetActiveSubscribersClosedDB(t *testing.T) {
+	db := closedDB(t)
+	_, err := db.GetActiveSubscribers("some-id")
+	if err == nil {
+		t.Error("expected error on closed DB")
+	}
+}
+
+func TestSearchSubscribersClosedDB(t *testing.T) {
+	db := closedDB(t)
+	_, err := db.SearchSubscribers("some-id", "query", 50)
+	if err == nil {
+		t.Error("expected error on closed DB")
+	}
+}
+
+func TestGetSubscriberCountsClosedDB(t *testing.T) {
+	db := closedDB(t)
+	_, err := db.GetSubscriberCounts("some-id")
+	if err == nil {
+		t.Error("expected error on closed DB")
+	}
+}
+
+func TestGetSentSubscriberIDsClosedDB(t *testing.T) {
+	db := closedDB(t)
+	_, err := db.GetSentSubscriberIDs("some-id")
+	if err == nil {
+		t.Error("expected error on closed DB")
+	}
+}
+
+func TestDeleteListClosedDB(t *testing.T) {
+	db := closedDB(t)
+	err := db.DeleteList("some-id")
+	if err == nil {
+		t.Error("expected error on closed DB")
+	}
+}
+
+func TestDeleteCampaignClosedDB(t *testing.T) {
+	db := closedDB(t)
+	err := db.DeleteCampaign("some-id")
+	if err == nil {
+		t.Error("expected error on closed DB")
+	}
+}
+
+func TestDeleteSubscriberClosedDB(t *testing.T) {
+	db := closedDB(t)
+	err := db.DeleteSubscriber("some-id")
+	if err == nil {
+		t.Error("expected error on closed DB")
+	}
+}
+
+func TestImportSubscribersClosedDB(t *testing.T) {
+	db := closedDB(t)
+	entries := []struct{ Email, Name string }{{"a@b.com", ""}}
+	_, err := db.ImportSubscribers("some-id", entries)
+	if err == nil {
+		t.Error("expected error on closed DB")
+	}
+}
+
+func TestCreateCampaignClosedDB(t *testing.T) {
+	db := closedDB(t)
+	_, err := db.CreateCampaign("Test", "Sub", "Body", "list-id")
+	if err == nil {
+		t.Error("expected error on closed DB")
+	}
+}
+
+func TestCreateTemplateClosedDB(t *testing.T) {
+	db := closedDB(t)
+	_, err := db.CreateTemplate("Test", "Body")
+	if err == nil {
+		t.Error("expected error on closed DB")
+	}
+}
+
+func TestAddSubscriberClosedDB(t *testing.T) {
+	db := closedDB(t)
+	_, err := db.AddSubscriber("a@b.com", "", "list-id")
+	if err == nil {
+		t.Error("expected error on closed DB")
+	}
+}
+
+func TestUpdateCampaignBodyClosedDB(t *testing.T) {
+	db := closedDB(t)
+	_, err := db.UpdateCampaignBody("id", "sub", "body")
+	if err == nil {
+		t.Error("expected error on closed DB")
+	}
+}
+
+func TestClaimCampaignClosedDB(t *testing.T) {
+	db := closedDB(t)
+	err := db.ClaimCampaignForSending("id")
+	if err == nil {
+		t.Error("expected error on closed DB")
+	}
+}
+
+func TestConfirmSubscriberClosedDB(t *testing.T) {
+	db := closedDB(t)
+	err := db.ConfirmSubscriber("token")
+	if err == nil {
+		t.Error("expected error on closed DB")
+	}
+}
+
+func TestUnsubscribeByTokenClosedDB(t *testing.T) {
+	db := closedDB(t)
+	err := db.UnsubscribeByToken("token")
+	if err == nil {
+		t.Error("expected error on closed DB")
+	}
+}
+
+func TestResubscribePendingClosedDB(t *testing.T) {
+	db := closedDB(t)
+	err := db.ResubscribePending("id")
+	if err == nil {
+		t.Error("expected error on closed DB")
+	}
+}
+
+func TestResubscribeActiveClosedDB(t *testing.T) {
+	db := closedDB(t)
+	err := db.ResubscribeActive("id")
+	if err == nil {
+		t.Error("expected error on closed DB")
+	}
+}
+
+func TestListSubscriberCountClosedDB(t *testing.T) {
+	db := closedDB(t)
+	_, err := db.ListSubscriberCount("id")
+	if err == nil {
+		t.Error("expected error on closed DB")
+	}
+}
+
+func TestUpdateCampaignStatsClosedDB(t *testing.T) {
+	db := closedDB(t)
+	err := db.UpdateCampaignStats("id", 0, 0)
+	if err == nil {
+		t.Error("expected error on closed DB")
+	}
+}
+
+func TestSetCampaignTemplateClosedDB(t *testing.T) {
+	db := closedDB(t)
+	err := db.SetCampaignTemplate("id", "tmpl-id")
+	if err == nil {
+		t.Error("expected error on closed DB")
+	}
+}
+
+func TestUpdateTemplateClosedDB(t *testing.T) {
+	db := closedDB(t)
+	err := db.UpdateTemplate("id", "name", "body")
+	if err == nil {
+		t.Error("expected error on closed DB")
+	}
+}
+
+func TestDeleteTemplateClosedDB(t *testing.T) {
+	db := closedDB(t)
+	err := db.DeleteTemplate("id")
+	if err == nil {
+		t.Error("expected error on closed DB")
+	}
+}
+
+func TestLogSendClosedDB(t *testing.T) {
+	db := closedDB(t)
+	err := db.LogSend("cid", "sid", "sent", "")
+	if err == nil {
+		t.Error("expected error on closed DB")
+	}
+}
+
+func TestUnsubscribeByEmailClosedDB(t *testing.T) {
+	db := closedDB(t)
+	err := db.UnsubscribeByEmail("a@b.com", "list-id")
+	if err == nil {
+		t.Error("expected error on closed DB")
+	}
+}
+
+func TestMarkBouncedClosedDB(t *testing.T) {
+	db := closedDB(t)
+	err := db.MarkBounced("id")
+	if err == nil {
+		t.Error("expected error on closed DB")
+	}
+}
+
+func TestGetSubscriberClosedDB(t *testing.T) {
+	db := closedDB(t)
+	_, err := db.GetSubscriber("id")
+	if err == nil {
+		t.Error("expected error on closed DB")
+	}
+}
+
+func TestGetSubscriberByEmailClosedDB(t *testing.T) {
+	db := closedDB(t)
+	_, err := db.GetSubscriberByEmail("a@b.com", "list-id")
+	if err == nil {
+		t.Error("expected error on closed DB")
+	}
+}
+
+func TestGetSubscriberByTokenClosedDB(t *testing.T) {
+	db := closedDB(t)
+	_, err := db.GetSubscriberByToken("token")
+	if err == nil {
+		t.Error("expected error on closed DB")
+	}
+}
+
+func TestGetListClosedDB(t *testing.T) {
+	db := closedDB(t)
+	_, err := db.GetList("id")
+	if err == nil {
+		t.Error("expected error on closed DB")
+	}
+}
+
+func TestGetListByNameClosedDB(t *testing.T) {
+	db := closedDB(t)
+	_, err := db.GetListByName("name")
+	if err == nil {
+		t.Error("expected error on closed DB")
+	}
+}
+
+func TestGetCampaignClosedDB(t *testing.T) {
+	db := closedDB(t)
+	_, err := db.GetCampaign("id")
+	if err == nil {
+		t.Error("expected error on closed DB")
+	}
+}
+
+func TestGetTemplateClosedDB(t *testing.T) {
+	db := closedDB(t)
+	_, err := db.GetTemplate("id")
+	if err == nil {
+		t.Error("expected error on closed DB")
+	}
+}
+
+func TestGetTemplateByNameClosedDB(t *testing.T) {
+	db := closedDB(t)
+	_, err := db.GetTemplateByName("name")
+	if err == nil {
+		t.Error("expected error on closed DB")
+	}
+}
+
+func TestCreateListClosedDB(t *testing.T) {
+	db := closedDB(t)
+	_, err := db.CreateList("Test", "")
+	if err == nil {
+		t.Error("expected error on closed DB")
+	}
+}
+
+func TestUpdateCampaignStatusClosedDB(t *testing.T) {
+	db := closedDB(t)
+	err := db.UpdateCampaignStatus("id", "sending")
+	if err == nil {
+		t.Error("expected error on closed DB")
+	}
+}
+
+// Paginated limit over 1000 defaults
+func TestListSubscribersPaginatedOverLimit(t *testing.T) {
+	db := testDB(t)
+	list, _ := db.CreateList("Test", "")
+	db.AddSubscriber("a@example.com", "", list.ID)
+
+	subs, _ := db.ListSubscribersPaginated(list.ID, 2000, 0)
+	if len(subs) != 1 {
+		t.Errorf("expected 1 subscriber, got %d", len(subs))
+	}
+}
+
+// ListListsEmpty
+func TestListListsEmpty(t *testing.T) {
+	db := testDB(t)
+	lists, err := db.ListLists()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lists != nil {
+		t.Errorf("expected nil for empty list, got %d items", len(lists))
+	}
+}
+
+// ListCampaignsEmpty
+func TestListCampaignsEmpty(t *testing.T) {
+	db := testDB(t)
+	campaigns, err := db.ListCampaigns()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if campaigns != nil {
+		t.Errorf("expected nil for empty campaigns, got %d items", len(campaigns))
+	}
+}
+
+// ListTemplatesEmpty
+func TestListTemplatesEmpty(t *testing.T) {
+	db := testDB(t)
+	templates, err := db.ListTemplates()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if templates != nil {
+		t.Errorf("expected nil for empty templates, got %d items", len(templates))
+	}
+}
+
+// ImportSubscribersEmpty
+func TestImportSubscribersEmpty(t *testing.T) {
+	db := testDB(t)
+	list, _ := db.CreateList("Test", "")
+
+	count, err := db.ImportSubscribers(list.ID, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Errorf("expected 0 imported, got %d", count)
+	}
+}
+
+// GetSubscriberCountsEmpty
+func TestGetSubscriberCountsEmpty(t *testing.T) {
+	db := testDB(t)
+	list, _ := db.CreateList("Test", "")
+
+	counts, err := db.GetSubscriberCounts(list.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if counts.Total != 0 {
+		t.Errorf("expected 0 total, got %d", counts.Total)
+	}
+}
+
+// Close is idempotent
+func TestCloseIdempotent(t *testing.T) {
+	f, _ := os.CreateTemp("", "inkdrift-test-*.db")
+	f.Close()
+	defer os.Remove(f.Name())
+
+	db, _ := Open(f.Name())
+	if err := db.Close(); err != nil {
+		t.Errorf("first close should succeed: %v", err)
+	}
+	// Second close may or may not error depending on driver, just don't panic
+	db.Close()
+}

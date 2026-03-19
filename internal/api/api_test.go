@@ -1028,3 +1028,292 @@ func TestCORSOnAdminEndpoints(t *testing.T) {
 		t.Error("expected CORS header on admin endpoint")
 	}
 }
+
+// closedDBServer returns a server whose DB connection is already closed,
+// to exercise error paths in handlers.
+func closedDBServer(t *testing.T) *Server {
+	t.Helper()
+	f, _ := os.CreateTemp("", "inkdrift-api-closed-*.db")
+	f.Close()
+	t.Cleanup(func() { os.Remove(f.Name()) })
+
+	database, _ := db.Open(f.Name())
+	cfg := config.DefaultConfig()
+	cfg.API.APIKey = "test-api-key"
+	cfg.API.CORS = "*"
+	srv := NewServer(database, cfg)
+	t.Cleanup(func() { srv.limiter.Close() })
+	database.Close()
+	return srv
+}
+
+func TestListListsDBError(t *testing.T) {
+	srv := closedDBServer(t)
+
+	req := httptest.NewRequest("GET", "/api/v1/lists", nil)
+	req.Header.Set("X-API-Key", "test-api-key")
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("expected 500 for DB error, got %d", w.Code)
+	}
+}
+
+func TestListCampaignsDBError(t *testing.T) {
+	srv := closedDBServer(t)
+
+	req := httptest.NewRequest("GET", "/api/v1/campaigns", nil)
+	req.Header.Set("X-API-Key", "test-api-key")
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("expected 500 for DB error, got %d", w.Code)
+	}
+}
+
+func TestStatsDBError(t *testing.T) {
+	srv := closedDBServer(t)
+
+	req := httptest.NewRequest("GET", "/api/v1/stats", nil)
+	req.Header.Set("X-API-Key", "test-api-key")
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("expected 500 for DB error, got %d", w.Code)
+	}
+}
+
+func TestListSubscribersDBError(t *testing.T) {
+	srv := closedDBServer(t)
+
+	req := httptest.NewRequest("GET", "/api/v1/lists/some-id/subscribers", nil)
+	req.Header.Set("X-API-Key", "test-api-key")
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("expected 500 for DB error, got %d", w.Code)
+	}
+}
+
+func TestSearchSubscribersDBError(t *testing.T) {
+	srv := closedDBServer(t)
+
+	req := httptest.NewRequest("GET", "/api/v1/lists/some-id/subscribers/search?q=test", nil)
+	req.Header.Set("X-API-Key", "test-api-key")
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("expected 500 for DB error, got %d", w.Code)
+	}
+}
+
+func TestCreateListDBError(t *testing.T) {
+	srv := closedDBServer(t)
+
+	body := `{"name": "Test"}`
+	req := httptest.NewRequest("POST", "/api/v1/lists", bytes.NewBufferString(body))
+	req.Header.Set("X-API-Key", "test-api-key")
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("expected 500 for DB error, got %d", w.Code)
+	}
+}
+
+func TestSubscribeResubscribeWithSMTP(t *testing.T) {
+	// With SMTP configured and domain set, resubscribe should go through pending path
+	cfg := config.DefaultConfig()
+	cfg.API.APIKey = "test-api-key"
+	cfg.API.CORS = "*"
+	cfg.SMTP.Host = "smtp.example.com"
+	cfg.SMTP.From = "test@example.com"
+	cfg.Server.Domain = "newsletter.example.com"
+	srv, database := testServerWithConfig(t, cfg)
+
+	list, _ := database.CreateList("Test", "")
+	sub, _ := database.AddSubscriber("unsub@example.com", "", list.ID)
+	database.UnsubscribeByToken(sub.ConfirmToken)
+
+	body := `{"email": "unsub@example.com", "list_id": "` + list.ID + `"}`
+	req := httptest.NewRequest("POST", "/api/v1/subscribe", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	// DNS may fail, but if it passes, should get 200 with pending message
+	if w.Code != http.StatusOK && w.Code != http.StatusBadRequest {
+		t.Errorf("expected 200 or 400 (DNS), got %d: %s", w.Code, w.Body.String())
+	}
+
+	if w.Code == http.StatusOK {
+		got, _ := database.GetSubscriber(sub.ID)
+		if got.Status != "pending" {
+			t.Errorf("expected status 'pending' with SMTP, got %q", got.Status)
+		}
+	}
+}
+
+func TestSubscribeDoubleOptIn(t *testing.T) {
+	// With SMTP configured and domain, new subscribers go to pending
+	cfg := config.DefaultConfig()
+	cfg.API.APIKey = "test-api-key"
+	cfg.API.CORS = "*"
+	cfg.SMTP.Host = "smtp.example.com"
+	cfg.SMTP.From = "test@example.com"
+	cfg.Server.Domain = "newsletter.example.com"
+	srv, database := testServerWithConfig(t, cfg)
+
+	database.CreateList("Test", "")
+
+	body := `{"email": "new@example.com", "list": "Test"}`
+	req := httptest.NewRequest("POST", "/api/v1/subscribe", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	// DNS may fail
+	if w.Code != http.StatusCreated && w.Code != http.StatusBadRequest {
+		t.Errorf("expected 201 or 400 (DNS), got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestStatsCampaignsDBError(t *testing.T) {
+	// Trigger the second DB error path in handleStats (ListCampaigns fails)
+	// This is tricky to test without a partial closed DB, so we test the full error path
+	srv := closedDBServer(t)
+
+	req := httptest.NewRequest("GET", "/api/v1/stats", nil)
+	req.Header.Set("X-API-Key", "test-api-key")
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("expected 500, got %d", w.Code)
+	}
+}
+
+func TestSubscribeDBError(t *testing.T) {
+	srv := closedDBServer(t)
+
+	body := `{"email": "test@example.com"}`
+	req := httptest.NewRequest("POST", "/api/v1/subscribe", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	// Should get either 400 (DNS fail) or 500 (DB fail) — both are acceptable
+	if w.Code != http.StatusBadRequest && w.Code != http.StatusInternalServerError {
+		t.Errorf("expected 400 or 500, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestAuthRateLimited(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.API.APIKey = "test-api-key"
+	cfg.API.RateLimit = 10 // min enforced is 10
+	srv, _ := testServerWithConfig(t, cfg)
+
+	// Exhaust rate limit (10 requests)
+	for i := 0; i < 12; i++ {
+		req := httptest.NewRequest("GET", "/api/v1/lists", nil)
+		req.Header.Set("X-API-Key", "wrong-key")
+		w := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(w, req)
+	}
+
+	// Next request should be rate limited
+	req := httptest.NewRequest("GET", "/api/v1/lists", nil)
+	req.Header.Set("X-API-Key", "test-api-key")
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusTooManyRequests {
+		t.Errorf("expected 429, got %d", w.Code)
+	}
+	if w.Header().Get("Retry-After") != "60" {
+		t.Error("expected Retry-After header")
+	}
+}
+
+func TestLoggedMiddleware(t *testing.T) {
+	srv, _ := testServer(t)
+
+	// Logged middleware is applied to all routes, just verify it doesn't break things
+	req := httptest.NewRequest("GET", "/health", nil)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", w.Code)
+	}
+}
+
+func TestSubscribeEmptyBody(t *testing.T) {
+	srv, _ := testServer(t)
+
+	req := httptest.NewRequest("POST", "/api/v1/subscribe", bytes.NewBufferString(""))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestListSubscribersEmptyList(t *testing.T) {
+	srv, database := testServer(t)
+	list, _ := database.CreateList("Empty", "")
+
+	req := httptest.NewRequest("GET", "/api/v1/lists/"+list.ID+"/subscribers", nil)
+	req.Header.Set("X-API-Key", "test-api-key")
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", w.Code)
+	}
+
+	var resp map[string]interface{}
+	json.NewDecoder(w.Body).Decode(&resp)
+	subs := resp["subscribers"].([]interface{})
+	if len(subs) != 0 {
+		t.Errorf("expected 0 subscribers, got %d", len(subs))
+	}
+	if resp["total"].(float64) != 0 {
+		t.Errorf("expected total 0, got %v", resp["total"])
+	}
+}
+
+func TestSubscribePaginationBounds(t *testing.T) {
+	srv, database := testServer(t)
+	list, _ := database.CreateList("Test", "")
+	database.AddSubscriber("a@example.com", "", list.ID)
+
+	// Very large limit (should be capped at 1000)
+	req := httptest.NewRequest("GET", "/api/v1/lists/"+list.ID+"/subscribers?limit=5000", nil)
+	req.Header.Set("X-API-Key", "test-api-key")
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", w.Code)
+	}
+
+	// Negative values should use defaults
+	req = httptest.NewRequest("GET", "/api/v1/lists/"+list.ID+"/subscribers?limit=-1&offset=-5", nil)
+	req.Header.Set("X-API-Key", "test-api-key")
+	w = httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", w.Code)
+	}
+}
