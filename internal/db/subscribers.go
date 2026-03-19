@@ -15,22 +15,24 @@ func (db *DB) AddSubscriber(email, name, listID string) (*Subscriber, error) {
 }
 
 func (db *DB) AddSubscriberWithStatus(email, name, listID, status string) (*Subscriber, error) {
-	token := generateToken()
+	confirmToken := generateToken()
+	unsubscribeToken := generateToken()
 	confirmed := status == "active"
 	sub := &Subscriber{
-		ID:           uuid.New().String(),
-		Email:        email,
-		Name:         name,
-		ListID:       listID,
-		Status:       status,
-		ConfirmToken: token,
-		Confirmed:    confirmed,
+		ID:               uuid.New().String(),
+		Email:            email,
+		Name:             name,
+		ListID:           listID,
+		Status:           status,
+		ConfirmToken:     confirmToken,
+		UnsubscribeToken: unsubscribeToken,
+		Confirmed:        confirmed,
 	}
 
 	_, err := db.conn.Exec(
-		`INSERT INTO subscribers (id, email, name, list_id, status, confirm_token, confirmed)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		sub.ID, sub.Email, sub.Name, sub.ListID, sub.Status, sub.ConfirmToken, confirmed,
+		`INSERT INTO subscribers (id, email, name, list_id, status, confirm_token, unsubscribe_token, confirmed)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		sub.ID, sub.Email, sub.Name, sub.ListID, sub.Status, sub.ConfirmToken, sub.UnsubscribeToken, confirmed,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("adding subscriber: %w", err)
@@ -41,9 +43,9 @@ func (db *DB) AddSubscriberWithStatus(email, name, listID, status string) (*Subs
 func (db *DB) GetSubscriber(id string) (*Subscriber, error) {
 	sub := &Subscriber{}
 	err := db.conn.QueryRow(
-		`SELECT id, email, name, list_id, status, confirm_token, confirmed, metadata, subscribed_at, unsubscribed_at, created_at
+		`SELECT id, email, name, list_id, status, confirm_token, unsubscribe_token, confirmed, metadata, subscribed_at, unsubscribed_at, created_at
 		 FROM subscribers WHERE id = ?`, id,
-	).Scan(&sub.ID, &sub.Email, &sub.Name, &sub.ListID, &sub.Status, &sub.ConfirmToken,
+	).Scan(&sub.ID, &sub.Email, &sub.Name, &sub.ListID, &sub.Status, &sub.ConfirmToken, &sub.UnsubscribeToken,
 		&sub.Confirmed, &sub.Metadata, &sub.SubscribedAt, &sub.UnsubscribedAt, &sub.CreatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("getting subscriber: %w", err)
@@ -54,9 +56,9 @@ func (db *DB) GetSubscriber(id string) (*Subscriber, error) {
 func (db *DB) GetSubscriberByEmail(email, listID string) (*Subscriber, error) {
 	sub := &Subscriber{}
 	err := db.conn.QueryRow(
-		`SELECT id, email, name, list_id, status, confirm_token, confirmed, metadata, subscribed_at, unsubscribed_at, created_at
+		`SELECT id, email, name, list_id, status, confirm_token, unsubscribe_token, confirmed, metadata, subscribed_at, unsubscribed_at, created_at
 		 FROM subscribers WHERE email = ? AND list_id = ?`, email, listID,
-	).Scan(&sub.ID, &sub.Email, &sub.Name, &sub.ListID, &sub.Status, &sub.ConfirmToken,
+	).Scan(&sub.ID, &sub.Email, &sub.Name, &sub.ListID, &sub.Status, &sub.ConfirmToken, &sub.UnsubscribeToken,
 		&sub.Confirmed, &sub.Metadata, &sub.SubscribedAt, &sub.UnsubscribedAt, &sub.CreatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("getting subscriber: %w", err)
@@ -66,7 +68,7 @@ func (db *DB) GetSubscriberByEmail(email, listID string) (*Subscriber, error) {
 
 func (db *DB) ListSubscribers(listID string) ([]Subscriber, error) {
 	rows, err := db.conn.Query(
-		`SELECT id, email, name, list_id, status, confirm_token, confirmed, metadata, subscribed_at, unsubscribed_at, created_at
+		`SELECT id, email, name, list_id, status, confirm_token, unsubscribe_token, confirmed, metadata, subscribed_at, unsubscribed_at, created_at
 		 FROM subscribers WHERE list_id = ? ORDER BY created_at DESC`, listID,
 	)
 	if err != nil {
@@ -77,7 +79,7 @@ func (db *DB) ListSubscribers(listID string) ([]Subscriber, error) {
 	var subs []Subscriber
 	for rows.Next() {
 		var s Subscriber
-		if err := rows.Scan(&s.ID, &s.Email, &s.Name, &s.ListID, &s.Status, &s.ConfirmToken,
+		if err := rows.Scan(&s.ID, &s.Email, &s.Name, &s.ListID, &s.Status, &s.ConfirmToken, &s.UnsubscribeToken,
 			&s.Confirmed, &s.Metadata, &s.SubscribedAt, &s.UnsubscribedAt, &s.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scanning subscriber: %w", err)
 		}
@@ -98,7 +100,7 @@ func (db *DB) ListSubscribersPaginated(listID string, limit, offset int) ([]Subs
 	}
 
 	rows, err := db.conn.Query(
-		`SELECT id, email, name, list_id, status, confirm_token, confirmed, metadata, subscribed_at, unsubscribed_at, created_at
+		`SELECT id, email, name, list_id, status, confirm_token, unsubscribe_token, confirmed, metadata, subscribed_at, unsubscribed_at, created_at
 		 FROM subscribers WHERE list_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?`, listID, limit, offset,
 	)
 	if err != nil {
@@ -109,7 +111,7 @@ func (db *DB) ListSubscribersPaginated(listID string, limit, offset int) ([]Subs
 	var subs []Subscriber
 	for rows.Next() {
 		var s Subscriber
-		if err := rows.Scan(&s.ID, &s.Email, &s.Name, &s.ListID, &s.Status, &s.ConfirmToken,
+		if err := rows.Scan(&s.ID, &s.Email, &s.Name, &s.ListID, &s.Status, &s.ConfirmToken, &s.UnsubscribeToken,
 			&s.Confirmed, &s.Metadata, &s.SubscribedAt, &s.UnsubscribedAt, &s.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scanning subscriber: %w", err)
 		}
@@ -123,7 +125,7 @@ func (db *DB) ListSubscribersPaginated(listID string, limit, offset int) ([]Subs
 
 func (db *DB) GetActiveSubscribers(listID string) ([]Subscriber, error) {
 	rows, err := db.conn.Query(
-		`SELECT id, email, name, list_id, status, confirm_token, confirmed, metadata, subscribed_at, unsubscribed_at, created_at
+		`SELECT id, email, name, list_id, status, confirm_token, unsubscribe_token, confirmed, metadata, subscribed_at, unsubscribed_at, created_at
 		 FROM subscribers WHERE list_id = ? AND status = 'active' ORDER BY created_at DESC`, listID,
 	)
 	if err != nil {
@@ -134,7 +136,7 @@ func (db *DB) GetActiveSubscribers(listID string) ([]Subscriber, error) {
 	var subs []Subscriber
 	for rows.Next() {
 		var s Subscriber
-		if err := rows.Scan(&s.ID, &s.Email, &s.Name, &s.ListID, &s.Status, &s.ConfirmToken,
+		if err := rows.Scan(&s.ID, &s.Email, &s.Name, &s.ListID, &s.Status, &s.ConfirmToken, &s.UnsubscribeToken,
 			&s.Confirmed, &s.Metadata, &s.SubscribedAt, &s.UnsubscribedAt, &s.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scanning subscriber: %w", err)
 		}
@@ -149,7 +151,7 @@ func (db *DB) GetActiveSubscribers(listID string) ([]Subscriber, error) {
 func (db *DB) UnsubscribeByToken(token string) error {
 	result, err := db.conn.Exec(
 		`UPDATE subscribers SET status = 'unsubscribed', unsubscribed_at = CURRENT_TIMESTAMP
-		 WHERE confirm_token = ? AND status = 'active'`, token,
+		 WHERE unsubscribe_token = ? AND status = 'active'`, token,
 	)
 	if err != nil {
 		return fmt.Errorf("unsubscribing: %w", err)
@@ -212,9 +214,9 @@ func (db *DB) MarkBounced(subscriberID string) error {
 func (db *DB) GetSubscriberByToken(token string) (*Subscriber, error) {
 	sub := &Subscriber{}
 	err := db.conn.QueryRow(
-		`SELECT id, email, name, list_id, status, confirm_token, confirmed, metadata, subscribed_at, unsubscribed_at, created_at
+		`SELECT id, email, name, list_id, status, confirm_token, unsubscribe_token, confirmed, metadata, subscribed_at, unsubscribed_at, created_at
 		 FROM subscribers WHERE confirm_token = ?`, token,
-	).Scan(&sub.ID, &sub.Email, &sub.Name, &sub.ListID, &sub.Status, &sub.ConfirmToken,
+	).Scan(&sub.ID, &sub.Email, &sub.Name, &sub.ListID, &sub.Status, &sub.ConfirmToken, &sub.UnsubscribeToken,
 		&sub.Confirmed, &sub.Metadata, &sub.SubscribedAt, &sub.UnsubscribedAt, &sub.CreatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("getting subscriber by token: %w", err)
@@ -229,7 +231,7 @@ func (db *DB) SearchSubscribers(listID, query string, limit int) ([]Subscriber, 
 	}
 	pattern := query + "%"
 	rows, err := db.conn.Query(
-		`SELECT id, email, name, list_id, status, confirm_token, confirmed, metadata, subscribed_at, unsubscribed_at, created_at
+		`SELECT id, email, name, list_id, status, confirm_token, unsubscribe_token, confirmed, metadata, subscribed_at, unsubscribed_at, created_at
 		 FROM subscribers WHERE list_id = ? AND (email LIKE ? OR name LIKE ?) ORDER BY email LIMIT ?`,
 		listID, pattern, pattern, limit,
 	)
@@ -241,7 +243,7 @@ func (db *DB) SearchSubscribers(listID, query string, limit int) ([]Subscriber, 
 	var subs []Subscriber
 	for rows.Next() {
 		var s Subscriber
-		if err := rows.Scan(&s.ID, &s.Email, &s.Name, &s.ListID, &s.Status, &s.ConfirmToken,
+		if err := rows.Scan(&s.ID, &s.Email, &s.Name, &s.ListID, &s.Status, &s.ConfirmToken, &s.UnsubscribeToken,
 			&s.Confirmed, &s.Metadata, &s.SubscribedAt, &s.UnsubscribedAt, &s.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scanning subscriber: %w", err)
 		}
@@ -261,8 +263,8 @@ func (db *DB) ImportSubscribers(listID string, entries []struct{ Email, Name str
 	defer tx.Rollback()
 
 	stmt, err := tx.Prepare(
-		`INSERT OR IGNORE INTO subscribers (id, email, name, list_id, status, confirm_token)
-		 VALUES (?, ?, ?, ?, 'active', ?)`,
+		`INSERT OR IGNORE INTO subscribers (id, email, name, list_id, status, confirm_token, unsubscribe_token)
+		 VALUES (?, ?, ?, ?, 'active', ?, ?)`,
 	)
 	if err != nil {
 		return 0, fmt.Errorf("preparing statement: %w", err)
@@ -271,7 +273,7 @@ func (db *DB) ImportSubscribers(listID string, entries []struct{ Email, Name str
 
 	count := 0
 	for _, e := range entries {
-		result, err := stmt.Exec(uuid.New().String(), e.Email, e.Name, listID, generateToken())
+		result, err := stmt.Exec(uuid.New().String(), e.Email, e.Name, listID, generateToken(), generateToken())
 		if err != nil {
 			continue
 		}
@@ -288,9 +290,9 @@ func (db *DB) ImportSubscribers(listID string, entries []struct{ Email, Name str
 // ResubscribePending sets an unsubscribed/bounced subscriber back to pending for double opt-in.
 func (db *DB) ResubscribePending(id string) error {
 	result, err := db.conn.Exec(
-		`UPDATE subscribers SET status = 'pending', confirmed = 0, unsubscribed_at = NULL, confirm_token = ?
+		`UPDATE subscribers SET status = 'pending', confirmed = 0, unsubscribed_at = NULL, confirm_token = ?, unsubscribe_token = ?
 		 WHERE id = ? AND status IN ('unsubscribed', 'bounced')`,
-		generateToken(), id,
+		generateToken(), generateToken(), id,
 	)
 	if err != nil {
 		return err

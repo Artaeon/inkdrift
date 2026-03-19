@@ -740,7 +740,7 @@ func TestUnsubscribeByToken(t *testing.T) {
 	list, _ := db.CreateList("Test", "", "", "")
 	sub, _ := db.AddSubscriber("test@example.com", "", list.ID)
 
-	if err := db.UnsubscribeByToken(sub.ConfirmToken); err != nil {
+	if err := db.UnsubscribeByToken(sub.UnsubscribeToken); err != nil {
 		t.Fatal(err)
 	}
 
@@ -767,10 +767,10 @@ func TestUnsubscribeByTokenAlreadyUnsubscribed(t *testing.T) {
 	sub, _ := db.AddSubscriber("test@example.com", "", list.ID)
 
 	// First unsubscribe
-	db.UnsubscribeByToken(sub.ConfirmToken)
+	db.UnsubscribeByToken(sub.UnsubscribeToken)
 
 	// Second unsubscribe should fail
-	if err := db.UnsubscribeByToken(sub.ConfirmToken); err == nil {
+	if err := db.UnsubscribeByToken(sub.UnsubscribeToken); err == nil {
 		t.Error("expected error for already unsubscribed")
 	}
 }
@@ -902,7 +902,7 @@ func TestResubscribePending(t *testing.T) {
 	sub, _ := db.AddSubscriber("test@example.com", "", list.ID)
 
 	// Unsubscribe first
-	db.UnsubscribeByToken(sub.ConfirmToken)
+	db.UnsubscribeByToken(sub.UnsubscribeToken)
 
 	// Resubscribe as pending
 	if err := db.ResubscribePending(sub.ID); err != nil {
@@ -941,7 +941,7 @@ func TestResubscribeActive(t *testing.T) {
 	list, _ := db.CreateList("Test", "", "", "")
 	sub, _ := db.AddSubscriber("test@example.com", "", list.ID)
 
-	db.UnsubscribeByToken(sub.ConfirmToken)
+	db.UnsubscribeByToken(sub.UnsubscribeToken)
 
 	if err := db.ResubscribeActive(sub.ID); err != nil {
 		t.Fatal(err)

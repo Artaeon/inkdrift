@@ -229,7 +229,7 @@ var subExportCmd = &cobra.Command{
 
 		w.Write([]string{"email", "name", "status", "subscribed_at"})
 		for _, s := range subs {
-			w.Write([]string{s.Email, s.Name, s.Status, s.SubscribedAt.Format("2006-01-02")})
+			w.Write([]string{sanitizeCSV(s.Email), sanitizeCSV(s.Name), s.Status, s.SubscribedAt.Format("2006-01-02")})
 		}
 
 		if output != "" {
@@ -287,6 +287,19 @@ func init() {
 
 	subAddCmd.Flags().StringP("name", "n", "", "Subscriber name")
 	subExportCmd.Flags().StringP("output", "o", "", "Output file (default: stdout)")
+}
+
+// sanitizeCSV prevents CSV injection by prefixing dangerous characters with a single quote.
+// Spreadsheet apps (Excel, Google Sheets) treat cells starting with =, +, -, @, \t, \r as formulas.
+func sanitizeCSV(s string) string {
+	if s == "" {
+		return s
+	}
+	switch s[0] {
+	case '=', '+', '-', '@', '\t', '\r':
+		return "'" + s
+	}
+	return s
 }
 
 func resolveListID(database *db.DB, nameOrID string) string {

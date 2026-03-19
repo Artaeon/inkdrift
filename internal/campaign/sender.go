@@ -133,7 +133,7 @@ func (s *Sender) sendToSubscribers(campaignID string, retryOnly bool) error {
 		ctx := render.Context{
 			SubscriberName:  sub.Name,
 			SubscriberEmail: sub.Email,
-			UnsubscribeURL:  s.unsubscribeURL(sub.ConfirmToken),
+			UnsubscribeURL:  s.unsubscribeURL(sub.UnsubscribeToken),
 			ListName:        list.Name,
 			SenderName:      senderName,
 			Content:         template.HTML(campaign.Body),
@@ -162,7 +162,7 @@ func (s *Sender) sendToSubscribers(campaignID string, retryOnly bool) error {
 			FromEmail: listFromEmail,
 			FromName:  listFromName,
 			Headers: map[string]string{
-				"List-Unsubscribe":      fmt.Sprintf("<%s>", s.unsubscribeURL(sub.ConfirmToken)),
+				"List-Unsubscribe":      fmt.Sprintf("<%s>", s.unsubscribeURL(sub.UnsubscribeToken)),
 				"List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
 				"X-Mailer":             "InkDrift",
 			},

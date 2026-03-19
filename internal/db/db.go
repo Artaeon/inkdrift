@@ -14,17 +14,18 @@ type DB struct {
 }
 
 type Subscriber struct {
-	ID            string
-	Email         string
-	Name          string
-	ListID        string
-	Status        string // active, unsubscribed, bounced
-	ConfirmToken  string
-	Confirmed     bool
-	Metadata      string // JSON
-	SubscribedAt  time.Time
-	UnsubscribedAt *time.Time
-	CreatedAt     time.Time
+	ID               string
+	Email            string
+	Name             string
+	ListID           string
+	Status           string // active, unsubscribed, bounced
+	ConfirmToken     string
+	UnsubscribeToken string
+	Confirmed        bool
+	Metadata         string // JSON
+	SubscribedAt     time.Time
+	UnsubscribedAt   *time.Time
+	CreatedAt        time.Time
 }
 
 type List struct {
@@ -187,6 +188,44 @@ func (db *DB) migrate() error {
 				fmt.Sprintf("ALTER TABLE lists ADD COLUMN %s %s", col.name, col.def),
 			); err != nil {
 				return fmt.Errorf("adding column %s: %w", col.name, err)
+			}
+		}
+	}
+
+	// Add separate unsubscribe_token column (security: isolate confirm and unsubscribe tokens)
+	var unsubColCount int
+	if err := db.conn.QueryRow(
+		"SELECT COUNT(*) FROM pragma_table_info('subscribers') WHERE name = 'unsubscribe_token'",
+	).Scan(&unsubColCount); err != nil {
+		return fmt.Errorf("checking unsubscribe_token column: %w", err)
+	}
+	if unsubColCount == 0 {
+		if _, err := db.conn.Exec(
+			"ALTER TABLE subscribers ADD COLUMN unsubscribe_token TEXT DEFAULT ''",
+		); err != nil {
+			return fmt.Errorf("adding unsubscribe_token column: %w", err)
+		}
+		// Backfill existing subscribers with unique unsubscribe tokens
+		rows, err := db.conn.Query("SELECT id FROM subscribers WHERE unsubscribe_token = '' OR unsubscribe_token IS NULL")
+		if err != nil {
+			return fmt.Errorf("querying subscribers for token backfill: %w", err)
+		}
+		var ids []string
+		for rows.Next() {
+			var id string
+			if err := rows.Scan(&id); err != nil {
+				rows.Close()
+				return fmt.Errorf("scanning subscriber id: %w", err)
+			}
+			ids = append(ids, id)
+		}
+		rows.Close()
+		for _, id := range ids {
+			if _, err := db.conn.Exec(
+				"UPDATE subscribers SET unsubscribe_token = ? WHERE id = ?",
+				generateToken(), id,
+			); err != nil {
+				return fmt.Errorf("backfilling unsubscribe token: %w", err)
 			}
 		}
 	}

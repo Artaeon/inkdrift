@@ -14,6 +14,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -26,18 +27,64 @@ import (
 var emailRegex = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9._%+\-]*[a-zA-Z0-9])?@[a-zA-Z0-9]([a-zA-Z0-9.\-]*[a-zA-Z0-9])?\.[a-zA-Z]{2,}$`)
 
 type Server struct {
-	db      *db.DB
-	cfg     *config.Config
-	mux     *http.ServeMux
-	limiter *rateLimiter
+	db       *db.DB
+	cfg      *config.Config
+	mux      *http.ServeMux
+	limiter  *rateLimiter
+	dnsCache *dnsCache
+}
+
+// dnsCache prevents DNS amplification attacks by caching MX/host lookup results.
+type dnsCache struct {
+	mu      sync.RWMutex
+	entries map[string]dnsCacheEntry
+}
+
+type dnsCacheEntry struct {
+	valid   bool
+	expires time.Time
+}
+
+func newDNSCache() *dnsCache {
+	return &dnsCache{entries: make(map[string]dnsCacheEntry)}
+}
+
+func (c *dnsCache) get(domain string) (valid bool, found bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	entry, ok := c.entries[domain]
+	if !ok || time.Now().After(entry.expires) {
+		return false, false
+	}
+	return entry.valid, true
+}
+
+func (c *dnsCache) set(domain string, valid bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	ttl := 5 * time.Minute
+	if !valid {
+		ttl = 1 * time.Minute // cache negative results shorter
+	}
+	c.entries[domain] = dnsCacheEntry{valid: valid, expires: time.Now().Add(ttl)}
+	// Evict expired entries if cache grows too large
+	if len(c.entries) > 10000 {
+		now := time.Now()
+		for k, v := range c.entries {
+			if now.After(v.expires) {
+				delete(c.entries, k)
+			}
+		}
+	}
 }
 
 func NewServer(database *db.DB, cfg *config.Config) *Server {
 	s := &Server{
-		db:      database,
-		cfg:     cfg,
-		mux:     http.NewServeMux(),
-		limiter: newRateLimiter(max(cfg.API.RateLimit, 10), time.Minute, cfg.API.TrustProxy),
+		db:       database,
+		cfg:      cfg,
+		mux:      http.NewServeMux(),
+		limiter:  newRateLimiter(max(cfg.API.RateLimit, 10), time.Minute, cfg.API.TrustProxy),
+		dnsCache: newDNSCache(),
 	}
 	s.routes()
 	return s
@@ -65,7 +112,18 @@ func (s *Server) routes() {
 }
 
 func (s *Server) Handler() http.Handler {
-	return s.mux
+	return s.securityHeaders(s.mux)
+}
+
+// securityHeaders adds security headers to all responses.
+func (s *Server) securityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'")
+		w.Header().Set("Referrer-Policy", "no-referrer")
+		next.ServeHTTP(w, r)
+	})
 }
 
 func (s *Server) ListenAndServe() error {
@@ -214,13 +272,26 @@ func (s *Server) handleSubscribe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Verify domain has MX records (basic deliverability check) with timeout
+	// Verify domain has MX records (basic deliverability check) with cache to prevent DNS amplification
 	parts := strings.SplitN(req.Email, "@", 2)
-	resolver := &net.Resolver{}
-	dnsCtx, dnsCancel := context.WithTimeout(r.Context(), 3*time.Second)
-	defer dnsCancel()
-	if _, err := resolver.LookupMX(dnsCtx, parts[1]); err != nil {
-		if _, err := resolver.LookupHost(dnsCtx, parts[1]); err != nil {
+	domain := parts[1]
+	if valid, found := s.dnsCache.get(domain); found {
+		if !valid {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid email domain"})
+			return
+		}
+	} else {
+		resolver := &net.Resolver{}
+		dnsCtx, dnsCancel := context.WithTimeout(r.Context(), 3*time.Second)
+		defer dnsCancel()
+		domainValid := true
+		if _, err := resolver.LookupMX(dnsCtx, domain); err != nil {
+			if _, err := resolver.LookupHost(dnsCtx, domain); err != nil {
+				domainValid = false
+			}
+		}
+		s.dnsCache.set(domain, domainValid)
+		if !domainValid {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid email domain"})
 			return
 		}

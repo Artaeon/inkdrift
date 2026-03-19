@@ -398,6 +398,51 @@ func TestBuildMessageFromOverridePartial(t *testing.T) {
 	}
 }
 
+func TestSendValidationErrorMissingRecipient(t *testing.T) {
+	s := NewSender(config.SMTPConfig{
+		Host: "smtp.example.com",
+		From: "sender@example.com",
+	})
+
+	err := s.Send(Email{To: "", Subject: "Test", HTML: "<p>Hi</p>"})
+	if err == nil {
+		t.Error("expected validation error")
+	}
+	if !strings.Contains(err.Error(), "recipient is required") {
+		t.Errorf("expected recipient validation error, got: %v", err)
+	}
+}
+
+func TestSendValidationErrorMissingBody(t *testing.T) {
+	s := NewSender(config.SMTPConfig{
+		Host: "smtp.example.com",
+		From: "sender@example.com",
+	})
+
+	err := s.Send(Email{To: "test@example.com", Subject: "Test"})
+	if err == nil {
+		t.Error("expected validation error")
+	}
+	if !strings.Contains(err.Error(), "body is required") {
+		t.Errorf("expected body validation error, got: %v", err)
+	}
+}
+
+func TestSendValidationErrorInvalidRecipient(t *testing.T) {
+	s := NewSender(config.SMTPConfig{
+		Host: "smtp.example.com",
+		From: "sender@example.com",
+	})
+
+	err := s.Send(Email{To: "no-at-sign", Subject: "Test", HTML: "<p>Hi</p>"})
+	if err == nil {
+		t.Error("expected validation error")
+	}
+	if !strings.Contains(err.Error(), "invalid recipient") {
+		t.Errorf("expected invalid recipient error, got: %v", err)
+	}
+}
+
 func TestBuildMessageNoOverride(t *testing.T) {
 	cfg := config.SMTPConfig{
 		Host:     "smtp.example.com",

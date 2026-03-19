@@ -364,8 +364,8 @@ func TestSendEmailHeaders(t *testing.T) {
 	if unsubHeader == "" {
 		t.Error("missing List-Unsubscribe header")
 	}
-	if !strings.Contains(unsubHeader, sub.ConfirmToken) {
-		t.Error("List-Unsubscribe should contain subscriber token")
+	if !strings.Contains(unsubHeader, sub.UnsubscribeToken) {
+		t.Error("List-Unsubscribe should contain subscriber unsubscribe token")
 	}
 	// Check X-Mailer
 	if email.Headers["X-Mailer"] != "InkDrift" {
@@ -489,6 +489,282 @@ func TestSendWithListFromIdentity(t *testing.T) {
 	}
 	if mock.sent[0].FromName != "Site A News" {
 		t.Errorf("expected from_name 'Site A News', got %q", mock.sent[0].FromName)
+	}
+}
+
+func TestSendBounce551(t *testing.T) {
+	database := testDB(t)
+	cfg := testCfg()
+	mock := &mockSMTP{
+		failFor: map[string]error{
+			"b@example.com": fmt.Errorf("551 User not local"),
+		},
+	}
+	s := NewSender(database, mock, cfg)
+
+	list, _ := database.CreateList("Test", "", "", "")
+	database.AddSubscriber("a@example.com", "", list.ID)
+	bounceSub, _ := database.AddSubscriber("b@example.com", "", list.ID)
+	c, _ := database.CreateCampaign("Test", "Sub", "<p>Body</p>", list.ID)
+
+	s.Send(c.ID)
+
+	updated, _ := database.GetSubscriber(bounceSub.ID)
+	if updated.Status != "bounced" {
+		t.Errorf("expected status 'bounced' for 551 error, got %q", updated.Status)
+	}
+}
+
+func TestSendBounce552(t *testing.T) {
+	database := testDB(t)
+	cfg := testCfg()
+	mock := &mockSMTP{
+		failFor: map[string]error{
+			"b@example.com": fmt.Errorf("552 Mailbox full"),
+		},
+	}
+	s := NewSender(database, mock, cfg)
+
+	list, _ := database.CreateList("Test", "", "", "")
+	database.AddSubscriber("a@example.com", "", list.ID)
+	bounceSub, _ := database.AddSubscriber("b@example.com", "", list.ID)
+	c, _ := database.CreateCampaign("Test", "Sub", "<p>Body</p>", list.ID)
+
+	s.Send(c.ID)
+
+	updated, _ := database.GetSubscriber(bounceSub.ID)
+	if updated.Status != "bounced" {
+		t.Errorf("expected status 'bounced' for 552 error, got %q", updated.Status)
+	}
+}
+
+func TestSendBounce553(t *testing.T) {
+	database := testDB(t)
+	cfg := testCfg()
+	mock := &mockSMTP{
+		failFor: map[string]error{
+			"b@example.com": fmt.Errorf("553 Requested action not taken"),
+		},
+	}
+	s := NewSender(database, mock, cfg)
+
+	list, _ := database.CreateList("Test", "", "", "")
+	database.AddSubscriber("a@example.com", "", list.ID)
+	bounceSub, _ := database.AddSubscriber("b@example.com", "", list.ID)
+	c, _ := database.CreateCampaign("Test", "Sub", "<p>Body</p>", list.ID)
+
+	s.Send(c.ID)
+
+	updated, _ := database.GetSubscriber(bounceSub.ID)
+	if updated.Status != "bounced" {
+		t.Errorf("expected status 'bounced' for 553 error, got %q", updated.Status)
+	}
+}
+
+func TestSendBounce554(t *testing.T) {
+	database := testDB(t)
+	cfg := testCfg()
+	mock := &mockSMTP{
+		failFor: map[string]error{
+			"b@example.com": fmt.Errorf("554 Transaction failed"),
+		},
+	}
+	s := NewSender(database, mock, cfg)
+
+	list, _ := database.CreateList("Test", "", "", "")
+	database.AddSubscriber("a@example.com", "", list.ID)
+	bounceSub, _ := database.AddSubscriber("b@example.com", "", list.ID)
+	c, _ := database.CreateCampaign("Test", "Sub", "<p>Body</p>", list.ID)
+
+	s.Send(c.ID)
+
+	updated, _ := database.GetSubscriber(bounceSub.ID)
+	if updated.Status != "bounced" {
+		t.Errorf("expected status 'bounced' for 554 error, got %q", updated.Status)
+	}
+}
+
+func TestSendBounceMailboxNotFound(t *testing.T) {
+	database := testDB(t)
+	cfg := testCfg()
+	mock := &mockSMTP{
+		failFor: map[string]error{
+			"b@example.com": fmt.Errorf("mailbox not found"),
+		},
+	}
+	s := NewSender(database, mock, cfg)
+
+	list, _ := database.CreateList("Test", "", "", "")
+	database.AddSubscriber("a@example.com", "", list.ID)
+	bounceSub, _ := database.AddSubscriber("b@example.com", "", list.ID)
+	c, _ := database.CreateCampaign("Test", "Sub", "<p>Body</p>", list.ID)
+
+	s.Send(c.ID)
+
+	updated, _ := database.GetSubscriber(bounceSub.ID)
+	if updated.Status != "bounced" {
+		t.Errorf("expected status 'bounced' for 'mailbox not found' error, got %q", updated.Status)
+	}
+}
+
+func TestSendBounceDoesNotExist(t *testing.T) {
+	database := testDB(t)
+	cfg := testCfg()
+	mock := &mockSMTP{
+		failFor: map[string]error{
+			"b@example.com": fmt.Errorf("does not exist"),
+		},
+	}
+	s := NewSender(database, mock, cfg)
+
+	list, _ := database.CreateList("Test", "", "", "")
+	database.AddSubscriber("a@example.com", "", list.ID)
+	bounceSub, _ := database.AddSubscriber("b@example.com", "", list.ID)
+	c, _ := database.CreateCampaign("Test", "Sub", "<p>Body</p>", list.ID)
+
+	s.Send(c.ID)
+
+	updated, _ := database.GetSubscriber(bounceSub.ID)
+	if updated.Status != "bounced" {
+		t.Errorf("expected status 'bounced' for 'does not exist' error, got %q", updated.Status)
+	}
+}
+
+func TestSendNonBounceError(t *testing.T) {
+	database := testDB(t)
+	cfg := testCfg()
+	mock := &mockSMTP{
+		failFor: map[string]error{
+			"b@example.com": fmt.Errorf("421 try again later"),
+		},
+	}
+	s := NewSender(database, mock, cfg)
+
+	list, _ := database.CreateList("Test", "", "", "")
+	database.AddSubscriber("a@example.com", "", list.ID)
+	sub, _ := database.AddSubscriber("b@example.com", "", list.ID)
+	c, _ := database.CreateCampaign("Test", "Sub", "<p>Body</p>", list.ID)
+
+	s.Send(c.ID)
+
+	// Non-bounce errors should NOT mark as bounced
+	updated, _ := database.GetSubscriber(sub.ID)
+	if updated.Status != "active" {
+		t.Errorf("expected status 'active' for non-bounce error, got %q", updated.Status)
+	}
+}
+
+func TestSendTemplateRenderErrorWithOnSend(t *testing.T) {
+	database := testDB(t)
+	cfg := testCfg()
+	mock := &mockSMTP{}
+	s := NewSender(database, mock, cfg)
+
+	list, _ := database.CreateList("Test", "", "", "")
+	database.AddSubscriber("a@example.com", "", list.ID)
+
+	// Invalid Go template syntax
+	c, _ := database.CreateCampaign("Test", "Sub", "{{.Invalid", list.ID)
+
+	var errors []error
+	s.OnSend(func(email string, idx, total int, err error) {
+		errors = append(errors, err)
+	})
+
+	s.Send(c.ID)
+
+	if len(errors) != 1 {
+		t.Fatalf("expected 1 error callback, got %d", len(errors))
+	}
+	if errors[0] == nil {
+		t.Error("expected non-nil error for render failure")
+	}
+}
+
+func TestSendSMTPFailWithOnSend(t *testing.T) {
+	database := testDB(t)
+	cfg := testCfg()
+	mock := &mockSMTP{
+		failFor: map[string]error{
+			"a@example.com": fmt.Errorf("SMTP connection failed"),
+		},
+	}
+	s := NewSender(database, mock, cfg)
+
+	list, _ := database.CreateList("Test", "", "", "")
+	database.AddSubscriber("a@example.com", "", list.ID)
+	c, _ := database.CreateCampaign("Test", "Sub", "<p>Body</p>", list.ID)
+
+	var errors []error
+	s.OnSend(func(email string, idx, total int, err error) {
+		errors = append(errors, err)
+	})
+
+	s.Send(c.ID)
+
+	if len(errors) != 1 {
+		t.Fatalf("expected 1 callback, got %d", len(errors))
+	}
+	if errors[0] == nil {
+		t.Error("expected non-nil error for SMTP failure")
+	}
+}
+
+func TestResendFailedFromFailedStatus(t *testing.T) {
+	database := testDB(t)
+	cfg := testCfg()
+	mock := &mockSMTP{}
+	s := NewSender(database, mock, cfg)
+
+	list, _ := database.CreateList("Test", "", "", "")
+	database.AddSubscriber("a@example.com", "", list.ID)
+	c, _ := database.CreateCampaign("Test", "Sub", "<p>Body</p>", list.ID)
+
+	// Put campaign into "failed" status
+	database.ClaimCampaignForSending(c.ID)
+	database.UpdateCampaignStatus(c.ID, "failed")
+
+	if err := s.ResendFailed(c.ID); err != nil {
+		t.Fatalf("expected retry from failed status to succeed: %v", err)
+	}
+}
+
+func TestResendFailedFromSendingStatus(t *testing.T) {
+	database := testDB(t)
+	cfg := testCfg()
+	mock := &mockSMTP{}
+	s := NewSender(database, mock, cfg)
+
+	list, _ := database.CreateList("Test", "", "", "")
+	database.AddSubscriber("a@example.com", "", list.ID)
+	c, _ := database.CreateCampaign("Test", "Sub", "<p>Body</p>", list.ID)
+
+	// Put campaign into "sending" status (stuck)
+	database.ClaimCampaignForSending(c.ID)
+
+	if err := s.ResendFailed(c.ID); err != nil {
+		t.Fatalf("expected retry from sending status to succeed: %v", err)
+	}
+}
+
+func TestResendFailedFromSentStatus(t *testing.T) {
+	database := testDB(t)
+	cfg := testCfg()
+	s := NewSender(database, &mockSMTP{}, cfg)
+
+	list, _ := database.CreateList("Test", "", "", "")
+	database.AddSubscriber("a@example.com", "", list.ID)
+	c, _ := database.CreateCampaign("Test", "Sub", "<p>Body</p>", list.ID)
+
+	database.ClaimCampaignForSending(c.ID)
+	database.UpdateCampaignStatus(c.ID, "sent")
+
+	err := s.ResendFailed(c.ID)
+	if err == nil {
+		t.Error("expected error: retry not available for sent campaigns")
+	}
+	if !strings.Contains(err.Error(), "sent") {
+		t.Errorf("expected error mentioning 'sent', got: %v", err)
 	}
 }
 

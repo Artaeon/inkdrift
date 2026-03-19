@@ -501,6 +501,76 @@ func TestSaveConfigDefaultPath(t *testing.T) {
 	}
 }
 
+func TestSaveConfigInvalidPath(t *testing.T) {
+	cfg := DefaultConfig()
+	err := Save(cfg, "/nonexistent/deeply/nested/dir/config.toml")
+	// Should succeed because Save calls MkdirAll -- but will fail on WriteFile if permissions issue
+	// On most systems this will fail at MkdirAll due to /nonexistent not being writable
+	if err == nil {
+		// Clean up if it somehow succeeded
+		os.RemoveAll("/nonexistent")
+	}
+	// We just verify it doesn't panic
+}
+
+func TestEnvOverrideInvalidAPIPort(t *testing.T) {
+	saved := os.Getenv("INKDRIFT_API_PORT")
+	t.Cleanup(func() {
+		if saved == "" {
+			os.Unsetenv("INKDRIFT_API_PORT")
+		} else {
+			os.Setenv("INKDRIFT_API_PORT", saved)
+		}
+	})
+
+	os.Setenv("INKDRIFT_API_PORT", "not-a-number")
+
+	cfg := DefaultConfig()
+	applyEnvOverrides(cfg)
+	if cfg.API.Port != 3377 {
+		t.Errorf("expected default port 3377 for invalid env, got %d", cfg.API.Port)
+	}
+}
+
+func TestEnvOverrideInvalidRateLimit(t *testing.T) {
+	saved := os.Getenv("INKDRIFT_RATE_LIMIT")
+	t.Cleanup(func() {
+		if saved == "" {
+			os.Unsetenv("INKDRIFT_RATE_LIMIT")
+		} else {
+			os.Setenv("INKDRIFT_RATE_LIMIT", saved)
+		}
+	})
+
+	os.Setenv("INKDRIFT_RATE_LIMIT", "not-a-number")
+
+	cfg := DefaultConfig()
+	applyEnvOverrides(cfg)
+	if cfg.API.RateLimit != 30 {
+		t.Errorf("expected default rate limit 30 for invalid env, got %d", cfg.API.RateLimit)
+	}
+}
+
+func TestEnvOverrideZeroRateLimit(t *testing.T) {
+	saved := os.Getenv("INKDRIFT_RATE_LIMIT")
+	t.Cleanup(func() {
+		if saved == "" {
+			os.Unsetenv("INKDRIFT_RATE_LIMIT")
+		} else {
+			os.Setenv("INKDRIFT_RATE_LIMIT", saved)
+		}
+	})
+
+	os.Setenv("INKDRIFT_RATE_LIMIT", "0")
+
+	cfg := DefaultConfig()
+	applyEnvOverrides(cfg)
+	// Zero rate limit should be ignored (n > 0 check)
+	if cfg.API.RateLimit != 30 {
+		t.Errorf("expected default rate limit 30 for zero env, got %d", cfg.API.RateLimit)
+	}
+}
+
 func TestEnvOverridesFileValues(t *testing.T) {
 	// Env vars should override values from config file
 	dir := t.TempDir()

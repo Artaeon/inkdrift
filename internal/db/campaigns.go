@@ -198,6 +198,10 @@ func (db *DB) GetSentSubscriberIDs(campaignID string) (map[string]bool, error) {
 }
 
 func (db *DB) LogSend(campaignID, subscriberID, status, errMsg string) error {
+	// Truncate error messages to prevent storing unbounded SMTP response bodies
+	if len(errMsg) > 500 {
+		errMsg = errMsg[:500]
+	}
 	_, err := db.conn.Exec(
 		`INSERT INTO send_log (id, campaign_id, subscriber_id, status, error)
 		 VALUES (?, ?, ?, ?, ?)`,

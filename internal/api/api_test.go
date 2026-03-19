@@ -666,7 +666,7 @@ func TestUnsubscribeEndpoint(t *testing.T) {
 	list, _ := database.CreateList("Test", "", "", "")
 	sub, _ := database.AddSubscriber("test@example.com", "", list.ID)
 
-	req := httptest.NewRequest("GET", "/api/v1/unsubscribe?token="+sub.ConfirmToken, nil)
+	req := httptest.NewRequest("GET", "/api/v1/unsubscribe?token="+sub.UnsubscribeToken, nil)
 	w := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(w, req)
 
@@ -688,7 +688,7 @@ func TestUnsubscribePOST(t *testing.T) {
 	list, _ := database.CreateList("Test", "", "", "")
 	sub, _ := database.AddSubscriber("test@example.com", "", list.ID)
 
-	req := httptest.NewRequest("POST", "/api/v1/unsubscribe?token="+sub.ConfirmToken, nil)
+	req := httptest.NewRequest("POST", "/api/v1/unsubscribe?token="+sub.UnsubscribeToken, nil)
 	w := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(w, req)
 
@@ -910,7 +910,7 @@ func TestSubscribeResubscribeNoSMTP(t *testing.T) {
 
 	list, _ := database.CreateList("Test", "", "", "")
 	sub, _ := database.AddSubscriber("unsub@example.com", "", list.ID)
-	database.UnsubscribeByToken(sub.ConfirmToken)
+	database.UnsubscribeByToken(sub.UnsubscribeToken)
 
 	body := `{"email": "unsub@example.com", "list_id": "` + list.ID + `"}`
 	req := httptest.NewRequest("POST", "/api/v1/subscribe", bytes.NewBufferString(body))
@@ -1169,7 +1169,7 @@ func TestSubscribeResubscribeWithSMTP(t *testing.T) {
 
 	list, _ := database.CreateList("Test", "", "", "")
 	sub, _ := database.AddSubscriber("unsub@example.com", "", list.ID)
-	database.UnsubscribeByToken(sub.ConfirmToken)
+	database.UnsubscribeByToken(sub.UnsubscribeToken)
 
 	body := `{"email": "unsub@example.com", "list_id": "` + list.ID + `"}`
 	req := httptest.NewRequest("POST", "/api/v1/subscribe", bytes.NewBufferString(body))
@@ -1319,6 +1319,40 @@ func TestListSubscribersEmptyList(t *testing.T) {
 	}
 	if resp["total"].(float64) != 0 {
 		t.Errorf("expected total 0, got %v", resp["total"])
+	}
+}
+
+func TestCreateListLongFromName(t *testing.T) {
+	srv, _ := testServer(t)
+
+	longFromName := strings.Repeat("n", 250)
+	body := `{"name": "Test", "from_email": "a@example.com", "from_name": "` + longFromName + `"}`
+	req := httptest.NewRequest("POST", "/api/v1/lists", bytes.NewBufferString(body))
+	req.Header.Set("X-API-Key", "test-api-key")
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	// Should succeed (from_name is truncated, not rejected)
+	if w.Code != http.StatusCreated {
+		t.Errorf("expected 201 (from_name truncated), got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestCORSDefaultOnSubscribe(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.API.APIKey = "test-api-key"
+	cfg.API.CORS = "" // empty CORS should default to "localhost"
+	srv, _ := testServerWithConfig(t, cfg)
+
+	body := `{"email": "test@example.com"}`
+	req := httptest.NewRequest("POST", "/api/v1/subscribe", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Header().Get("Access-Control-Allow-Origin") != "localhost" {
+		t.Errorf("expected default CORS 'localhost' on subscribe, got %q", w.Header().Get("Access-Control-Allow-Origin"))
 	}
 }
 
