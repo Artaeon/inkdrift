@@ -222,12 +222,16 @@ This is useful when a campaign was interrupted or had partial failures.`,
 			os.Exit(1)
 		}
 
-		c, _ = database.GetCampaign(c.ID)
 		elapsed := time.Since(start).Round(time.Second)
 		fmt.Println()
-		fmt.Printf("Done in %s! Sent: %d, Failed: %d, Status: %s\n", elapsed, c.SentCount, c.FailedCount, c.Status)
-		if c.FailedCount > 0 {
-			fmt.Println("Tip: use 'inkdrift campaign send --retry' to resend to failed subscribers")
+		updated, err := database.GetCampaign(c.ID)
+		if err != nil {
+			fmt.Printf("Done in %s.\n", elapsed)
+		} else {
+			fmt.Printf("Done in %s! Sent: %d, Failed: %d, Status: %s\n", elapsed, updated.SentCount, updated.FailedCount, updated.Status)
+			if updated.FailedCount > 0 {
+				fmt.Println("Tip: use 'inkdrift campaign send --retry' to resend to failed subscribers")
+			}
 		}
 	},
 }

@@ -102,7 +102,11 @@ var backupListCmd = &cobra.Command{
 
 		fmt.Printf("Backups in %s/:\n", dir)
 		for _, b := range backups {
-			info, _ := b.Info()
+			info, err := b.Info()
+			if err != nil {
+				fmt.Printf("  %s\n", b.Name())
+				continue
+			}
 			fmt.Printf("  %s  (%.1f KB)\n", b.Name(), float64(info.Size())/1024)
 		}
 		fmt.Printf("\n%d backup(s) total\n", len(backups))

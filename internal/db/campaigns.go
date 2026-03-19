@@ -87,7 +87,7 @@ var validStatuses = map[string]bool{"draft": true, "sending": true, "sent": true
 // validTransitions defines allowed campaign status transitions to prevent invalid state changes.
 var validTransitions = map[string]map[string]bool{
 	"draft":   {"sending": true},
-	"sending": {"sent": true, "partial": true, "failed": true},
+	"sending": {"sending": true, "sent": true, "partial": true, "failed": true},
 	"partial": {"sending": true},
 	"failed":  {"sending": true},
 	// "sent" is terminal — no transitions out

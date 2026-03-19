@@ -34,7 +34,9 @@ var campaignDuplicateCmd = &cobra.Command{
 		}
 
 		if original.TemplateID != "" {
-			database.SetCampaignTemplate(dup.ID, original.TemplateID)
+			if err := database.SetCampaignTemplate(dup.ID, original.TemplateID); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: failed to copy template: %v\n", err)
+			}
 		}
 
 		fmt.Printf("Campaign duplicated: %s (ID: %s)\n", dup.Name, shortID(dup.ID))
