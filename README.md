@@ -258,6 +258,23 @@ This satisfies CAN-SPAM and GDPR consent requirements. When SMTP is not configur
 
 Users who previously unsubscribed or were bounced can re-subscribe through the same API endpoint. They will go through the double opt-in flow again to confirm their intent.
 
+## Templates
+
+Email templates use Go's `html/template` syntax. Available variables:
+
+| Variable | Description |
+|---|---|
+| `{{.SubscriberName}}` | Subscriber's name |
+| `{{.SubscriberEmail}}` | Subscriber's email address |
+| `{{.UnsubscribeURL}}` | One-click unsubscribe link |
+| `{{.ListName}}` | Mailing list name |
+| `{{.SenderName}}` | Newsletter name from config |
+| `{{.Content}}` | Campaign body (used in wrapper templates) |
+| `{{.Year}}` | Current year (useful for footer copyright) |
+| `{{.Extra}}` | Custom key-value pairs (map) |
+
+**Limits:** Campaign body max 1MB, subject max 998 characters (RFC 5322), template body max 2MB.
+
 ## SMTP Providers
 
 InkDrift works with any standard SMTP provider. Here are common configurations:
@@ -326,6 +343,7 @@ port = 3377
 api_key = "your-secret-api-key"
 cors = "https://example.com"
 rate_limit = 30
+trust_proxy = false  # set true when behind reverse proxy (Traefik, nginx)
 
 [db]
 path = "inkdrift.db"
@@ -349,6 +367,7 @@ Every config value can be overridden with environment variables. This is the rec
 | `INKDRIFT_API_HOST`       | API server bind address         | `0.0.0.0`         |
 | `INKDRIFT_CORS`           | CORS allowed origin             | `*`               |
 | `INKDRIFT_RATE_LIMIT`     | Requests per minute per IP      | `30`              |
+| `INKDRIFT_TRUST_PROXY`    | Trust X-Forwarded-For headers   | `false`           |
 | `INKDRIFT_DOMAIN`         | Public domain for links         |                   |
 | `INKDRIFT_NAME`           | Newsletter name                 | `InkDrift Newsletter` |
 | `INKDRIFT_DB_PATH`        | SQLite database file path       | `inkdrift.db`     |

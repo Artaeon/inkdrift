@@ -217,11 +217,23 @@ func TestStatusValidation(t *testing.T) {
 	list, _ := db.CreateList("Test", "")
 	c, _ := db.CreateCampaign("Test", "Sub", "Body", list.ID)
 
+	// Invalid status name
 	if err := db.UpdateCampaignStatus(c.ID, "invalid"); err == nil {
 		t.Error("expected error for invalid status")
 	}
 
+	// Valid transition: draft -> sending
+	if err := db.UpdateCampaignStatus(c.ID, "sending"); err != nil {
+		t.Errorf("expected valid transition draft->sending, got: %v", err)
+	}
+
+	// Valid transition: sending -> sent
 	if err := db.UpdateCampaignStatus(c.ID, "sent"); err != nil {
-		t.Errorf("expected valid status update, got: %v", err)
+		t.Errorf("expected valid transition sending->sent, got: %v", err)
+	}
+
+	// Invalid transition: sent is terminal
+	if err := db.UpdateCampaignStatus(c.ID, "draft"); err == nil {
+		t.Error("expected error transitioning from sent to draft")
 	}
 }

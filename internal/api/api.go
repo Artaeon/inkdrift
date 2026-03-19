@@ -166,7 +166,7 @@ func (s *Server) auth(next http.HandlerFunc) http.HandlerFunc {
 		}
 
 		if subtle.ConstantTimeCompare([]byte(key), []byte(s.cfg.API.APIKey)) != 1 {
-			log.Printf("AUTH FAIL: %s %s from %s", r.Method, r.URL.Path, ip)
+			log.Printf("auth fail: %s %s from %s", r.Method, r.URL.Path, ip)
 			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 			return
 		}
@@ -501,6 +501,20 @@ func (s *Server) handleSearchSubscribers(w http.ResponseWriter, r *http.Request)
 	})
 }
 
+type safeCampaign struct {
+	ID          string  `json:"id"`
+	Name        string  `json:"name"`
+	Subject     string  `json:"subject"`
+	ListID      string  `json:"list_id"`
+	Status      string  `json:"status"`
+	TemplateID  string  `json:"template_id,omitempty"`
+	SentAt      *string `json:"sent_at,omitempty"`
+	SentCount   int     `json:"sent_count"`
+	FailedCount int     `json:"failed_count"`
+	BodySize    int     `json:"body_size"`
+	CreatedAt   string  `json:"created_at"`
+}
+
 func (s *Server) handleListCampaigns(w http.ResponseWriter, r *http.Request) {
 	campaigns, err := s.db.ListCampaigns()
 	if err != nil {
@@ -508,7 +522,26 @@ func (s *Server) handleListCampaigns(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
 		return
 	}
-	writeJSON(w, http.StatusOK, campaigns)
+	safe := make([]safeCampaign, len(campaigns))
+	for i, c := range campaigns {
+		safe[i] = safeCampaign{
+			ID:          c.ID,
+			Name:        c.Name,
+			Subject:     c.Subject,
+			ListID:      c.ListID,
+			Status:      c.Status,
+			TemplateID:  c.TemplateID,
+			SentCount:   c.SentCount,
+			FailedCount: c.FailedCount,
+			BodySize:    len(c.Body),
+			CreatedAt:   c.CreatedAt.Format("2006-01-02T15:04:05Z"),
+		}
+		if c.SentAt != nil {
+			s := c.SentAt.Format("2006-01-02T15:04:05Z")
+			safe[i].SentAt = &s
+		}
+	}
+	writeJSON(w, http.StatusOK, safe)
 }
 
 func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {

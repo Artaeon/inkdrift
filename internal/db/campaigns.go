@@ -84,11 +84,31 @@ func (db *DB) ListCampaigns() ([]Campaign, error) {
 // validStatuses guards against invalid status values
 var validStatuses = map[string]bool{"draft": true, "sending": true, "sent": true, "partial": true, "failed": true}
 
+// validTransitions defines allowed campaign status transitions to prevent invalid state changes.
+var validTransitions = map[string]map[string]bool{
+	"draft":   {"sending": true},
+	"sending": {"sent": true, "partial": true, "failed": true},
+	"partial": {"sending": true},
+	"failed":  {"sending": true},
+	// "sent" is terminal — no transitions out
+}
+
 func (db *DB) UpdateCampaignStatus(id, status string) error {
 	if !validStatuses[status] {
 		return fmt.Errorf("invalid campaign status: %s", status)
 	}
-	_, err := db.conn.Exec(
+
+	// Validate transition if campaign exists
+	current, err := db.GetCampaign(id)
+	if err != nil {
+		return fmt.Errorf("campaign not found: %w", err)
+	}
+	allowed, exists := validTransitions[current.Status]
+	if !exists || !allowed[status] {
+		return fmt.Errorf("cannot transition campaign from %q to %q", current.Status, status)
+	}
+
+	_, err = db.conn.Exec(
 		`UPDATE campaigns SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
 		status, id,
 	)
