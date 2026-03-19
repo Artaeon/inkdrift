@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -79,8 +80,16 @@ func Load(path string) (*Config, error) {
 		if err != nil {
 			return nil, fmt.Errorf("reading config: %w", err)
 		}
-		if err := toml.Unmarshal(data, cfg); err != nil {
-			return nil, fmt.Errorf("parsing config: %w", err)
+
+		// Use strict decoding to catch config typos (e.g., "smpt" instead of "smtp")
+		dec := toml.NewDecoder(bytes.NewReader(data))
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(cfg); err != nil {
+			// Fall back to lenient parsing if strict fails (allows forward compat)
+			if err2 := toml.Unmarshal(data, cfg); err2 != nil {
+				return nil, fmt.Errorf("parsing config: %w", err2)
+			}
+			fmt.Fprintf(os.Stderr, "Warning: config has unknown keys: %v\n", err)
 		}
 	}
 

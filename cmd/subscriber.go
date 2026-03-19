@@ -150,6 +150,11 @@ var subImportCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
+		// Strip UTF-8 BOM if present in first record
+		if len(records) > 0 && len(records[0]) > 0 {
+			records[0][0] = strings.TrimPrefix(records[0][0], "\xEF\xBB\xBF")
+		}
+
 		var entries []struct{ Email, Name string }
 		skipped := 0
 		for i, record := range records {

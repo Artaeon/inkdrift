@@ -45,8 +45,11 @@ func runInit(cmd *cobra.Command, args []string) {
 	cfg.SMTP.Host = prompt("SMTP Host (e.g., smtp.hostinger.com)")
 	portStr := promptDefault("SMTP Port", "587")
 	port, err := strconv.Atoi(portStr)
-	if err == nil {
+	if err == nil && port > 0 && port <= 65535 {
 		cfg.SMTP.Port = port
+	} else if err != nil || port <= 0 || port > 65535 {
+		fmt.Println("  Invalid port, using default 587")
+		cfg.SMTP.Port = 587
 	}
 	cfg.SMTP.Username = prompt("SMTP Username (usually your email)")
 	cfg.SMTP.Password = prompt("SMTP Password")
@@ -59,8 +62,11 @@ func runInit(cmd *cobra.Command, args []string) {
 	fmt.Println("[API Configuration]")
 	apiPortStr := promptDefault("API Port", "3377")
 	apiPort, err := strconv.Atoi(apiPortStr)
-	if err == nil {
+	if err == nil && apiPort > 0 && apiPort <= 65535 {
 		cfg.API.Port = apiPort
+	} else if err != nil || apiPort <= 0 || apiPort > 65535 {
+		fmt.Println("  Invalid port, using default 3377")
+		cfg.API.Port = 3377
 	}
 	cfg.API.APIKey = prompt("API Key (for admin endpoints, leave empty to disable)")
 	cfg.API.CORS = promptDefault("CORS Origin", "*")
