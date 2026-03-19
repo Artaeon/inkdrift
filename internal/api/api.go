@@ -246,6 +246,13 @@ func (s *Server) handleSubscribe(w http.ResponseWriter, r *http.Request) {
 		listID = lists[0].ID
 	}
 
+	// Fetch the full list object (needed for per-list sender identity)
+	list, err := s.db.GetList(listID)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "list not found"})
+		return
+	}
+
 	// Check if already subscribed
 	existing, err := s.db.GetSubscriberByEmail(req.Email, listID)
 	if err == nil {
@@ -272,7 +279,7 @@ func (s *Server) handleSubscribe(w http.ResponseWriter, r *http.Request) {
 					writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to resubscribe"})
 					return
 				}
-				go s.sendConfirmationEmail(refreshed)
+				go s.sendConfirmationEmail(refreshed, list)
 				writeJSON(w, http.StatusOK, map[string]string{"message": "please check your email to confirm your subscription"})
 			} else {
 				if err := s.db.ResubscribeActive(existing.ID); err != nil {
@@ -301,7 +308,7 @@ func (s *Server) handleSubscribe(w http.ResponseWriter, r *http.Request) {
 
 	// Send confirmation email for double opt-in
 	if status == "pending" {
-		go s.sendConfirmationEmail(sub)
+		go s.sendConfirmationEmail(sub, list)
 		writeJSON(w, http.StatusCreated, map[string]string{"message": "please check your email to confirm your subscription"})
 		return
 	}
@@ -371,6 +378,8 @@ func (s *Server) handleCreateList(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name        string `json:"name"`
 		Description string `json:"description"`
+		FromEmail   string `json:"from_email"`
+		FromName    string `json:"from_name"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -380,6 +389,8 @@ func (s *Server) handleCreateList(w http.ResponseWriter, r *http.Request) {
 
 	req.Name = strings.TrimSpace(req.Name)
 	req.Description = strings.TrimSpace(req.Description)
+	req.FromEmail = strings.TrimSpace(strings.ToLower(req.FromEmail))
+	req.FromName = strings.TrimSpace(req.FromName)
 
 	if req.Name == "" || len(req.Name) > 200 {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "name is required (max 200 chars)"})
@@ -388,8 +399,15 @@ func (s *Server) handleCreateList(w http.ResponseWriter, r *http.Request) {
 	if len(req.Description) > 1000 {
 		req.Description = req.Description[:1000]
 	}
+	if req.FromEmail != "" && (!emailRegex.MatchString(req.FromEmail) || len(req.FromEmail) > 254) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid from_email address"})
+		return
+	}
+	if len(req.FromName) > 200 {
+		req.FromName = req.FromName[:200]
+	}
 
-	list, err := s.db.CreateList(req.Name, req.Description)
+	list, err := s.db.CreateList(req.Name, req.Description, req.FromEmail, req.FromName)
 	if err != nil {
 		log.Printf("create list error: %v", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to create list"})
@@ -609,7 +627,7 @@ func (s *Server) handleOptions(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (s *Server) sendConfirmationEmail(sub *db.Subscriber) {
+func (s *Server) sendConfirmationEmail(sub *db.Subscriber, list *db.List) {
 	domain := s.cfg.Server.Domain
 	scheme := "https"
 	if domain == "" {
@@ -618,10 +636,18 @@ func (s *Server) sendConfirmationEmail(sub *db.Subscriber) {
 	}
 	confirmURL := fmt.Sprintf("%s://%s/api/v1/confirm?token=%s", scheme, domain, sub.ConfirmToken)
 
+	// Use list's sender identity, falling back to global config
+	displayName := s.cfg.Server.Name
+	if list.FromName != "" {
+		displayName = list.FromName
+	}
+
 	sender := smtp.NewSender(s.cfg.SMTP)
 	err := sender.Send(smtp.Email{
-		To:      sub.Email,
-		Subject: fmt.Sprintf("Confirm your subscription to %s", s.cfg.Server.Name),
+		To:        sub.Email,
+		Subject:   fmt.Sprintf("Confirm your subscription to %s", displayName),
+		FromEmail: list.FromEmail,
+		FromName:  list.FromName,
 		HTML: fmt.Sprintf(`<div style="font-family:sans-serif;max-width:500px;margin:0 auto;padding:20px">
 <h2>Confirm your subscription</h2>
 <p>You've been asked to subscribe to <strong>%s</strong>.</p>
@@ -631,9 +657,9 @@ func (s *Server) sendConfirmationEmail(sub *db.Subscriber) {
 </p>
 <p style="color:#666;font-size:13px">If you didn't request this, you can safely ignore this email.</p>
 <p style="color:#999;font-size:12px">Or copy this link: %s</p>
-</div>`, s.cfg.Server.Name, confirmURL, confirmURL),
+</div>`, displayName, confirmURL, confirmURL),
 		Text: fmt.Sprintf("Confirm your subscription to %s\n\nClick here to confirm: %s\n\nIf you didn't request this, ignore this email.",
-			s.cfg.Server.Name, confirmURL),
+			displayName, confirmURL),
 	})
 	if err != nil {
 		log.Printf("failed to send confirmation email to %s: %v", sub.Email, err)

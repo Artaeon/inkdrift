@@ -35,7 +35,10 @@ var listCreateCmd = &cobra.Command{
 			desc = prompt("Description (optional)")
 		}
 
-		list, err := database.CreateList(name, desc)
+		fromEmail, _ := cmd.Flags().GetString("from-email")
+		fromName, _ := cmd.Flags().GetString("from-name")
+
+		list, err := database.CreateList(name, desc, fromEmail, fromName)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
@@ -66,15 +69,19 @@ var listListCmd = &cobra.Command{
 		}
 
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(w, "ID\tNAME\tACTIVE\tPENDING\tTOTAL\tDESCRIPTION")
-		fmt.Fprintln(w, "--\t----\t------\t-------\t-----\t-----------")
+		fmt.Fprintln(w, "ID\tNAME\tFROM\tACTIVE\tPENDING\tTOTAL\tDESCRIPTION")
+		fmt.Fprintln(w, "--\t----\t----\t------\t-------\t-----\t-----------")
 		for _, l := range lists {
 			counts, _ := database.GetSubscriberCounts(l.ID)
 			id := l.ID
 			if len(id) > 8 {
 				id = id[:8]
 			}
-			fmt.Fprintf(w, "%s\t%s\t%d\t%d\t%d\t%s\n", id, l.Name, counts.Active, counts.Pending, counts.Total, l.Description)
+			from := l.FromEmail
+			if from == "" {
+				from = "(global)"
+			}
+			fmt.Fprintf(w, "%s\t%s\t%s\t%d\t%d\t%d\t%s\n", id, l.Name, from, counts.Active, counts.Pending, counts.Total, l.Description)
 		}
 		w.Flush()
 	},
@@ -124,5 +131,7 @@ func init() {
 	listCmd.AddCommand(listDeleteCmd)
 
 	listCreateCmd.Flags().StringP("description", "d", "", "List description")
+	listCreateCmd.Flags().String("from-email", "", "Sender email for this list (overrides global SMTP from)")
+	listCreateCmd.Flags().String("from-name", "", "Sender display name for this list (overrides global SMTP from_name)")
 	listDeleteCmd.Flags().BoolP("force", "f", false, "Skip confirmation")
 }

@@ -6,16 +6,18 @@ import (
 	"github.com/google/uuid"
 )
 
-func (db *DB) CreateList(name, description string) (*List, error) {
+func (db *DB) CreateList(name, description, fromEmail, fromName string) (*List, error) {
 	list := &List{
 		ID:          uuid.New().String(),
 		Name:        name,
 		Description: description,
+		FromEmail:   fromEmail,
+		FromName:    fromName,
 	}
 
 	_, err := db.conn.Exec(
-		`INSERT INTO lists (id, name, description) VALUES (?, ?, ?)`,
-		list.ID, list.Name, list.Description,
+		`INSERT INTO lists (id, name, description, from_email, from_name) VALUES (?, ?, ?, ?, ?)`,
+		list.ID, list.Name, list.Description, list.FromEmail, list.FromName,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("creating list: %w", err)
@@ -26,8 +28,8 @@ func (db *DB) CreateList(name, description string) (*List, error) {
 func (db *DB) GetList(id string) (*List, error) {
 	list := &List{}
 	err := db.conn.QueryRow(
-		`SELECT id, name, description, created_at, updated_at FROM lists WHERE id = ?`, id,
-	).Scan(&list.ID, &list.Name, &list.Description, &list.CreatedAt, &list.UpdatedAt)
+		`SELECT id, name, description, from_email, from_name, created_at, updated_at FROM lists WHERE id = ?`, id,
+	).Scan(&list.ID, &list.Name, &list.Description, &list.FromEmail, &list.FromName, &list.CreatedAt, &list.UpdatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("getting list: %w", err)
 	}
@@ -37,8 +39,8 @@ func (db *DB) GetList(id string) (*List, error) {
 func (db *DB) GetListByName(name string) (*List, error) {
 	list := &List{}
 	err := db.conn.QueryRow(
-		`SELECT id, name, description, created_at, updated_at FROM lists WHERE name = ?`, name,
-	).Scan(&list.ID, &list.Name, &list.Description, &list.CreatedAt, &list.UpdatedAt)
+		`SELECT id, name, description, from_email, from_name, created_at, updated_at FROM lists WHERE name = ?`, name,
+	).Scan(&list.ID, &list.Name, &list.Description, &list.FromEmail, &list.FromName, &list.CreatedAt, &list.UpdatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("getting list: %w", err)
 	}
@@ -47,7 +49,7 @@ func (db *DB) GetListByName(name string) (*List, error) {
 
 func (db *DB) ListLists() ([]List, error) {
 	rows, err := db.conn.Query(
-		`SELECT id, name, description, created_at, updated_at FROM lists ORDER BY name`,
+		`SELECT id, name, description, from_email, from_name, created_at, updated_at FROM lists ORDER BY name`,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("listing lists: %w", err)
@@ -57,7 +59,7 @@ func (db *DB) ListLists() ([]List, error) {
 	var lists []List
 	for rows.Next() {
 		var l List
-		if err := rows.Scan(&l.ID, &l.Name, &l.Description, &l.CreatedAt, &l.UpdatedAt); err != nil {
+		if err := rows.Scan(&l.ID, &l.Name, &l.Description, &l.FromEmail, &l.FromName, &l.CreatedAt, &l.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scanning list: %w", err)
 		}
 		lists = append(lists, l)

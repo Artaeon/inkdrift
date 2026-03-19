@@ -341,3 +341,79 @@ func TestNewSender(t *testing.T) {
 		t.Errorf("expected host 'smtp.example.com', got %q", s.cfg.Host)
 	}
 }
+
+func TestBuildMessageFromOverride(t *testing.T) {
+	cfg := config.SMTPConfig{
+		Host:     "smtp.example.com",
+		From:     "global@example.com",
+		FromName: "Global Name",
+	}
+	s := NewSender(cfg)
+
+	email := Email{
+		To:        "user@test.com",
+		Subject:   "Hello",
+		HTML:      "<p>Hi</p>",
+		FromEmail: "local@site-a.com",
+		FromName:  "Site A",
+	}
+
+	msg := string(s.buildMessage(email))
+
+	// From header should use the override, not global
+	if !strings.Contains(msg, "Site A <local@site-a.com>") {
+		t.Error("expected per-email From override in message headers")
+	}
+	// From: line should not contain global address
+	for _, line := range strings.Split(msg, "\r\n") {
+		if strings.HasPrefix(line, "From:") && strings.Contains(line, "global@example.com") {
+			t.Error("From: header should use override, not global")
+		}
+	}
+	// Message-ID domain should use the override email's domain
+	if !strings.Contains(msg, "@site-a.com>") {
+		t.Error("expected Message-ID domain from override email")
+	}
+}
+
+func TestBuildMessageFromOverridePartial(t *testing.T) {
+	cfg := config.SMTPConfig{
+		Host:     "smtp.example.com",
+		From:     "global@example.com",
+		FromName: "Global Name",
+	}
+	s := NewSender(cfg)
+
+	// Only override email, not name — should use global name
+	email := Email{
+		To:        "user@test.com",
+		Subject:   "Hello",
+		HTML:      "<p>Hi</p>",
+		FromEmail: "local@site-a.com",
+	}
+
+	msg := string(s.buildMessage(email))
+	if !strings.Contains(msg, "Global Name <local@site-a.com>") {
+		t.Errorf("expected global name with override email, got:\n%s", msg)
+	}
+}
+
+func TestBuildMessageNoOverride(t *testing.T) {
+	cfg := config.SMTPConfig{
+		Host:     "smtp.example.com",
+		From:     "global@example.com",
+		FromName: "Global Name",
+	}
+	s := NewSender(cfg)
+
+	email := Email{
+		To:      "user@test.com",
+		Subject: "Hello",
+		HTML:    "<p>Hi</p>",
+	}
+
+	msg := string(s.buildMessage(email))
+	if !strings.Contains(msg, "Global Name <global@example.com>") {
+		t.Error("expected global From when no override")
+	}
+}

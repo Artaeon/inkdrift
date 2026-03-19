@@ -246,7 +246,7 @@ func TestListListsEmpty(t *testing.T) {
 
 func TestListListsWithSubscriberCount(t *testing.T) {
 	srv, database := testServer(t)
-	list, _ := database.CreateList("Test List", "A test list")
+	list, _ := database.CreateList("Test List", "A test list", "", "")
 	database.AddSubscriber("a@example.com", "", list.ID)
 	database.AddSubscriber("b@example.com", "", list.ID)
 
@@ -281,6 +281,36 @@ func TestCreateList(t *testing.T) {
 
 	if w.Code != http.StatusCreated {
 		t.Errorf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestCreateListWithFromIdentity(t *testing.T) {
+	srv, _ := testServer(t)
+
+	body := `{"name": "Site A", "description": "First site", "from_email": "news@site-a.com", "from_name": "Site A News"}`
+	req := httptest.NewRequest("POST", "/api/v1/lists", bytes.NewBufferString(body))
+	req.Header.Set("X-API-Key", "test-api-key")
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Errorf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestCreateListInvalidFromEmail(t *testing.T) {
+	srv, _ := testServer(t)
+
+	body := `{"name": "Bad Email", "from_email": "not-an-email"}`
+	req := httptest.NewRequest("POST", "/api/v1/lists", bytes.NewBufferString(body))
+	req.Header.Set("X-API-Key", "test-api-key")
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for invalid from_email, got %d", w.Code)
 	}
 }
 
@@ -334,7 +364,7 @@ func TestCreateListLongDescription(t *testing.T) {
 
 func TestCreateListDuplicate(t *testing.T) {
 	srv, database := testServer(t)
-	database.CreateList("Existing", "")
+	database.CreateList("Existing", "", "", "")
 
 	body := `{"name": "Existing"}`
 	req := httptest.NewRequest("POST", "/api/v1/lists", bytes.NewBufferString(body))
@@ -377,7 +407,7 @@ func TestListCampaignsEmpty(t *testing.T) {
 
 func TestListCampaignsWithSentAt(t *testing.T) {
 	srv, database := testServer(t)
-	list, _ := database.CreateList("Test", "")
+	list, _ := database.CreateList("Test", "", "", "")
 	c, _ := database.CreateCampaign("Campaign", "Subject", "<p>Body</p>", list.ID)
 	// Set sent_at via UpdateCampaignStats
 	database.UpdateCampaignStats(c.ID, 5, 0)
@@ -428,7 +458,7 @@ func TestStatsEmpty(t *testing.T) {
 
 func TestStatsWithData(t *testing.T) {
 	srv, database := testServer(t)
-	list, _ := database.CreateList("Test", "")
+	list, _ := database.CreateList("Test", "", "", "")
 	database.AddSubscriber("a@example.com", "", list.ID)
 	c, _ := database.CreateCampaign("Campaign", "Sub", "Body", list.ID)
 	database.UpdateCampaignStats(c.ID, 5, 1)
@@ -460,7 +490,7 @@ func TestStatsWithData(t *testing.T) {
 
 func TestListSubscribers(t *testing.T) {
 	srv, database := testServer(t)
-	list, _ := database.CreateList("Test", "")
+	list, _ := database.CreateList("Test", "", "", "")
 	database.AddSubscriber("a@example.com", "Alice", list.ID)
 	database.AddSubscriber("b@example.com", "Bob", list.ID)
 
@@ -514,7 +544,7 @@ func TestListSubscribersInvalidListID(t *testing.T) {
 
 func TestListSubscribersPagination(t *testing.T) {
 	srv, database := testServer(t)
-	list, _ := database.CreateList("Test", "")
+	list, _ := database.CreateList("Test", "", "", "")
 	for i := 0; i < 5; i++ {
 		database.AddSubscriber(
 			string(rune('a'+i))+"@example.com", "", list.ID)
@@ -548,7 +578,7 @@ func TestListSubscribersPagination(t *testing.T) {
 
 func TestListSubscribersInvalidPagination(t *testing.T) {
 	srv, database := testServer(t)
-	list, _ := database.CreateList("Test", "")
+	list, _ := database.CreateList("Test", "", "", "")
 	database.AddSubscriber("a@example.com", "", list.ID)
 
 	// Invalid limit and offset should use defaults
@@ -564,7 +594,7 @@ func TestListSubscribersInvalidPagination(t *testing.T) {
 
 func TestSearchSubscribers(t *testing.T) {
 	srv, database := testServer(t)
-	list, _ := database.CreateList("Test", "")
+	list, _ := database.CreateList("Test", "", "", "")
 	database.AddSubscriber("alice@example.com", "Alice", list.ID)
 	database.AddSubscriber("bob@example.com", "Bob", list.ID)
 
@@ -590,7 +620,7 @@ func TestSearchSubscribers(t *testing.T) {
 
 func TestSearchSubscribersMissingQuery(t *testing.T) {
 	srv, database := testServer(t)
-	list, _ := database.CreateList("Test", "")
+	list, _ := database.CreateList("Test", "", "", "")
 
 	req := httptest.NewRequest("GET", "/api/v1/lists/"+list.ID+"/subscribers/search", nil)
 	req.Header.Set("X-API-Key", "test-api-key")
@@ -604,7 +634,7 @@ func TestSearchSubscribersMissingQuery(t *testing.T) {
 
 func TestSearchSubscribersLongQuery(t *testing.T) {
 	srv, database := testServer(t)
-	list, _ := database.CreateList("Test", "")
+	list, _ := database.CreateList("Test", "", "", "")
 
 	longQuery := strings.Repeat("a", 201)
 	req := httptest.NewRequest("GET", "/api/v1/lists/"+list.ID+"/subscribers/search?q="+longQuery, nil)
@@ -633,7 +663,7 @@ func TestSearchSubscribersInvalidListID(t *testing.T) {
 
 func TestUnsubscribeEndpoint(t *testing.T) {
 	srv, database := testServer(t)
-	list, _ := database.CreateList("Test", "")
+	list, _ := database.CreateList("Test", "", "", "")
 	sub, _ := database.AddSubscriber("test@example.com", "", list.ID)
 
 	req := httptest.NewRequest("GET", "/api/v1/unsubscribe?token="+sub.ConfirmToken, nil)
@@ -655,7 +685,7 @@ func TestUnsubscribeEndpoint(t *testing.T) {
 
 func TestUnsubscribePOST(t *testing.T) {
 	srv, database := testServer(t)
-	list, _ := database.CreateList("Test", "")
+	list, _ := database.CreateList("Test", "", "", "")
 	sub, _ := database.AddSubscriber("test@example.com", "", list.ID)
 
 	req := httptest.NewRequest("POST", "/api/v1/unsubscribe?token="+sub.ConfirmToken, nil)
@@ -706,7 +736,7 @@ func TestUnsubscribeLongToken(t *testing.T) {
 
 func TestConfirmEndpoint(t *testing.T) {
 	srv, database := testServer(t)
-	list, _ := database.CreateList("Test", "")
+	list, _ := database.CreateList("Test", "", "", "")
 	sub, _ := database.AddSubscriberWithStatus("test@example.com", "", list.ID, "pending")
 
 	req := httptest.NewRequest("GET", "/api/v1/confirm?token="+sub.ConfirmToken, nil)
@@ -768,7 +798,7 @@ func TestConfirmLongToken(t *testing.T) {
 
 func TestSubscribeEndpoint(t *testing.T) {
 	srv, database := testServer(t)
-	database.CreateList("Default", "")
+	database.CreateList("Default", "", "", "")
 
 	body := `{"email": "new@example.com", "name": "New User"}`
 	req := httptest.NewRequest("POST", "/api/v1/subscribe", bytes.NewBufferString(body))
@@ -840,7 +870,7 @@ func TestSubscribeLongEmail(t *testing.T) {
 
 func TestSubscribeAlreadyActive(t *testing.T) {
 	srv, database := testServer(t)
-	list, _ := database.CreateList("Test", "")
+	list, _ := database.CreateList("Test", "", "", "")
 	database.AddSubscriber("existing@example.com", "", list.ID)
 
 	body := `{"email": "existing@example.com", "list_id": "` + list.ID + `"}`
@@ -857,7 +887,7 @@ func TestSubscribeAlreadyActive(t *testing.T) {
 
 func TestSubscribeAlreadyPending(t *testing.T) {
 	srv, database := testServer(t)
-	list, _ := database.CreateList("Test", "")
+	list, _ := database.CreateList("Test", "", "", "")
 	database.AddSubscriberWithStatus("pending@example.com", "", list.ID, "pending")
 
 	body := `{"email": "pending@example.com", "list_id": "` + list.ID + `"}`
@@ -878,7 +908,7 @@ func TestSubscribeResubscribeNoSMTP(t *testing.T) {
 	// SMTP not configured, domain not set
 	srv, database := testServerWithConfig(t, cfg)
 
-	list, _ := database.CreateList("Test", "")
+	list, _ := database.CreateList("Test", "", "", "")
 	sub, _ := database.AddSubscriber("unsub@example.com", "", list.ID)
 	database.UnsubscribeByToken(sub.ConfirmToken)
 
@@ -903,7 +933,7 @@ func TestSubscribeResubscribeNoSMTP(t *testing.T) {
 
 func TestSubscribeWithListName(t *testing.T) {
 	srv, database := testServer(t)
-	database.CreateList("My Newsletter", "")
+	database.CreateList("My Newsletter", "", "", "")
 
 	body := `{"email": "test@example.com", "list": "My Newsletter"}`
 	req := httptest.NewRequest("POST", "/api/v1/subscribe", bytes.NewBufferString(body))
@@ -948,7 +978,7 @@ func TestSubscribeNoLists(t *testing.T) {
 
 func TestSubscribeLongName(t *testing.T) {
 	srv, database := testServer(t)
-	database.CreateList("Test", "")
+	database.CreateList("Test", "", "", "")
 
 	longName := strings.Repeat("n", 300)
 	body := `{"email": "test@example.com", "name": "` + longName + `"}`
@@ -1137,7 +1167,7 @@ func TestSubscribeResubscribeWithSMTP(t *testing.T) {
 	cfg.Server.Domain = "newsletter.example.com"
 	srv, database := testServerWithConfig(t, cfg)
 
-	list, _ := database.CreateList("Test", "")
+	list, _ := database.CreateList("Test", "", "", "")
 	sub, _ := database.AddSubscriber("unsub@example.com", "", list.ID)
 	database.UnsubscribeByToken(sub.ConfirmToken)
 
@@ -1170,7 +1200,7 @@ func TestSubscribeDoubleOptIn(t *testing.T) {
 	cfg.Server.Domain = "newsletter.example.com"
 	srv, database := testServerWithConfig(t, cfg)
 
-	database.CreateList("Test", "")
+	database.CreateList("Test", "", "", "")
 
 	body := `{"email": "new@example.com", "list": "Test"}`
 	req := httptest.NewRequest("POST", "/api/v1/subscribe", bytes.NewBufferString(body))
@@ -1270,7 +1300,7 @@ func TestSubscribeEmptyBody(t *testing.T) {
 
 func TestListSubscribersEmptyList(t *testing.T) {
 	srv, database := testServer(t)
-	list, _ := database.CreateList("Empty", "")
+	list, _ := database.CreateList("Empty", "", "", "")
 
 	req := httptest.NewRequest("GET", "/api/v1/lists/"+list.ID+"/subscribers", nil)
 	req.Header.Set("X-API-Key", "test-api-key")
@@ -1294,7 +1324,7 @@ func TestListSubscribersEmptyList(t *testing.T) {
 
 func TestSubscribePaginationBounds(t *testing.T) {
 	srv, database := testServer(t)
-	list, _ := database.CreateList("Test", "")
+	list, _ := database.CreateList("Test", "", "", "")
 	database.AddSubscriber("a@example.com", "", list.ID)
 
 	// Very large limit (should be capped at 1000)

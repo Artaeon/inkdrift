@@ -87,7 +87,7 @@ func TestSendSuccess(t *testing.T) {
 	mock := &mockSMTP{}
 	s := NewSender(database, mock, cfg)
 
-	list, _ := database.CreateList("Test", "")
+	list, _ := database.CreateList("Test", "", "", "")
 	database.AddSubscriber("a@example.com", "Alice", list.ID)
 	database.AddSubscriber("b@example.com", "Bob", list.ID)
 	c, _ := database.CreateCampaign("Test", "Subject", "<p>Hello</p>", list.ID)
@@ -128,7 +128,7 @@ func TestSendPartialFailure(t *testing.T) {
 	}
 	s := NewSender(database, mock, cfg)
 
-	list, _ := database.CreateList("Test", "")
+	list, _ := database.CreateList("Test", "", "", "")
 	database.AddSubscriber("ok@example.com", "", list.ID)
 	database.AddSubscriber("fail@example.com", "", list.ID)
 	c, _ := database.CreateCampaign("Test", "Sub", "<p>Body</p>", list.ID)
@@ -160,7 +160,7 @@ func TestSendAllFail(t *testing.T) {
 	}
 	s := NewSender(database, mock, cfg)
 
-	list, _ := database.CreateList("Test", "")
+	list, _ := database.CreateList("Test", "", "", "")
 	database.AddSubscriber("a@example.com", "", list.ID)
 	database.AddSubscriber("b@example.com", "", list.ID)
 	c, _ := database.CreateCampaign("Test", "Sub", "<p>Body</p>", list.ID)
@@ -185,7 +185,7 @@ func TestSendBounceHandling(t *testing.T) {
 	}
 	s := NewSender(database, mock, cfg)
 
-	list, _ := database.CreateList("Test", "")
+	list, _ := database.CreateList("Test", "", "", "")
 	database.AddSubscriber("ok@example.com", "", list.ID)
 	bounceSub, _ := database.AddSubscriber("bounce@example.com", "", list.ID)
 	c, _ := database.CreateCampaign("Test", "Sub", "<p>Body</p>", list.ID)
@@ -204,7 +204,7 @@ func TestSendNonDraftCampaign(t *testing.T) {
 	cfg := testCfg()
 	s := NewSender(database, &mockSMTP{}, cfg)
 
-	list, _ := database.CreateList("Test", "")
+	list, _ := database.CreateList("Test", "", "", "")
 	database.AddSubscriber("a@example.com", "", list.ID)
 	c, _ := database.CreateCampaign("Test", "Sub", "Body", list.ID)
 	database.ClaimCampaignForSending(c.ID)
@@ -220,7 +220,7 @@ func TestSendNoSubscribers(t *testing.T) {
 	cfg := testCfg()
 	s := NewSender(database, &mockSMTP{}, cfg)
 
-	list, _ := database.CreateList("Empty List", "")
+	list, _ := database.CreateList("Empty List", "", "", "")
 	c, _ := database.CreateCampaign("Test", "Sub", "Body", list.ID)
 
 	err := s.Send(c.ID)
@@ -245,7 +245,7 @@ func TestResendFailedWrongStatus(t *testing.T) {
 	cfg := testCfg()
 	s := NewSender(database, &mockSMTP{}, cfg)
 
-	list, _ := database.CreateList("Test", "")
+	list, _ := database.CreateList("Test", "", "", "")
 	database.AddSubscriber("a@example.com", "", list.ID)
 	c, _ := database.CreateCampaign("Test", "Sub", "Body", list.ID)
 	err := s.ResendFailed(c.ID)
@@ -260,7 +260,7 @@ func TestResendFailedSuccess(t *testing.T) {
 	mock := &mockSMTP{}
 	s := NewSender(database, mock, cfg)
 
-	list, _ := database.CreateList("Test", "")
+	list, _ := database.CreateList("Test", "", "", "")
 	sub1, _ := database.AddSubscriber("sent@example.com", "", list.ID)
 	database.AddSubscriber("retry@example.com", "", list.ID)
 	c, _ := database.CreateCampaign("Test", "Sub", "<p>Body</p>", list.ID)
@@ -295,7 +295,7 @@ func TestResendFailedAllSent(t *testing.T) {
 	cfg := testCfg()
 	s := NewSender(database, &mockSMTP{}, cfg)
 
-	list, _ := database.CreateList("Test", "")
+	list, _ := database.CreateList("Test", "", "", "")
 	sub, _ := database.AddSubscriber("a@example.com", "", list.ID)
 	c, _ := database.CreateCampaign("Test", "Sub", "Body", list.ID)
 	database.ClaimCampaignForSending(c.ID)
@@ -314,7 +314,7 @@ func TestSendWithTemplate(t *testing.T) {
 	mock := &mockSMTP{}
 	s := NewSender(database, mock, cfg)
 
-	list, _ := database.CreateList("Test", "")
+	list, _ := database.CreateList("Test", "", "", "")
 	database.AddSubscriber("a@example.com", "Alice", list.ID)
 	tmpl, _ := database.CreateTemplate("Wrapper", "<html><body>{{.Content}}</body></html>")
 
@@ -343,7 +343,7 @@ func TestSendEmailHeaders(t *testing.T) {
 	mock := &mockSMTP{}
 	s := NewSender(database, mock, cfg)
 
-	list, _ := database.CreateList("Test", "")
+	list, _ := database.CreateList("Test", "", "", "")
 	sub, _ := database.AddSubscriber("a@example.com", "", list.ID)
 	c, _ := database.CreateCampaign("Test", "Subject Line", "<p>Body</p>", list.ID)
 
@@ -383,7 +383,7 @@ func TestSendTemplateRenderError(t *testing.T) {
 	mock := &mockSMTP{}
 	s := NewSender(database, mock, cfg)
 
-	list, _ := database.CreateList("Test", "")
+	list, _ := database.CreateList("Test", "", "", "")
 	database.AddSubscriber("a@example.com", "", list.ID)
 
 	// Invalid Go template syntax in body
@@ -456,12 +456,62 @@ func TestSendDeletedList(t *testing.T) {
 	cfg := testCfg()
 	s := NewSender(database, &mockSMTP{}, cfg)
 
-	list, _ := database.CreateList("Test", "")
+	list, _ := database.CreateList("Test", "", "", "")
 	c, _ := database.CreateCampaign("Test", "Sub", "Body", list.ID)
 	database.DeleteList(list.ID)
 
 	err := s.Send(c.ID)
 	if err == nil {
 		t.Error("expected error for deleted list")
+	}
+}
+
+func TestSendWithListFromIdentity(t *testing.T) {
+	database := testDB(t)
+	cfg := testCfg()
+	mock := &mockSMTP{}
+	s := NewSender(database, mock, cfg)
+
+	// Create list with per-list sender identity
+	list, _ := database.CreateList("Site A", "", "news@site-a.com", "Site A News")
+	database.AddSubscriber("user@example.com", "User", list.ID)
+	c, _ := database.CreateCampaign("Welcome", "Hello", "<p>Hi</p>", list.ID)
+
+	if err := s.Send(c.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(mock.sent) != 1 {
+		t.Fatalf("expected 1 email sent, got %d", len(mock.sent))
+	}
+	if mock.sent[0].FromEmail != "news@site-a.com" {
+		t.Errorf("expected from_email 'news@site-a.com', got %q", mock.sent[0].FromEmail)
+	}
+	if mock.sent[0].FromName != "Site A News" {
+		t.Errorf("expected from_name 'Site A News', got %q", mock.sent[0].FromName)
+	}
+}
+
+func TestSendWithGlobalFallback(t *testing.T) {
+	database := testDB(t)
+	cfg := testCfg()
+	mock := &mockSMTP{}
+	s := NewSender(database, mock, cfg)
+
+	// Create list WITHOUT per-list sender — should use empty (global fallback)
+	list, _ := database.CreateList("Global", "", "", "")
+	database.AddSubscriber("user@example.com", "User", list.ID)
+	c, _ := database.CreateCampaign("News", "Update", "<p>Hi</p>", list.ID)
+
+	if err := s.Send(c.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(mock.sent) != 1 {
+		t.Fatalf("expected 1 email sent, got %d", len(mock.sent))
+	}
+	// Empty = global SMTP config handles it
+	if mock.sent[0].FromEmail != "" {
+		t.Errorf("expected empty from_email for global fallback, got %q", mock.sent[0].FromEmail)
 	}
 }

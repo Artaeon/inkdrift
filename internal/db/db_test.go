@@ -25,7 +25,7 @@ func testDB(t *testing.T) *DB {
 func TestCreateAndGetList(t *testing.T) {
 	db := testDB(t)
 
-	list, err := db.CreateList("Test List", "A test list")
+	list, err := db.CreateList("Test List", "A test list", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,7 +45,7 @@ func TestCreateAndGetList(t *testing.T) {
 func TestCreateAndGetCampaign(t *testing.T) {
 	db := testDB(t)
 
-	list, err := db.CreateList("Test", "")
+	list, err := db.CreateList("Test", "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,7 +69,7 @@ func TestCreateAndGetCampaign(t *testing.T) {
 
 func TestCampaignBodySizeLimit(t *testing.T) {
 	db := testDB(t)
-	list, _ := db.CreateList("Test", "")
+	list, _ := db.CreateList("Test", "", "", "")
 
 	bigBody := make([]byte, maxCampaignBodySize+1)
 	for i := range bigBody {
@@ -84,7 +84,7 @@ func TestCampaignBodySizeLimit(t *testing.T) {
 
 func TestClaimCampaignForSending(t *testing.T) {
 	db := testDB(t)
-	list, _ := db.CreateList("Test", "")
+	list, _ := db.CreateList("Test", "", "", "")
 	c, _ := db.CreateCampaign("Test", "Sub", "Body", list.ID)
 
 	// First claim should succeed
@@ -100,7 +100,7 @@ func TestClaimCampaignForSending(t *testing.T) {
 
 func TestSubscriberLifecycle(t *testing.T) {
 	db := testDB(t)
-	list, _ := db.CreateList("Test", "")
+	list, _ := db.CreateList("Test", "", "", "")
 
 	// Add subscriber
 	sub, err := db.AddSubscriber("test@example.com", "Test User", list.ID)
@@ -142,7 +142,7 @@ func TestSubscriberLifecycle(t *testing.T) {
 
 func TestSubscriberCounts(t *testing.T) {
 	db := testDB(t)
-	list, _ := db.CreateList("Test", "")
+	list, _ := db.CreateList("Test", "", "", "")
 
 	db.AddSubscriber("a@example.com", "", list.ID)
 	db.AddSubscriber("b@example.com", "", list.ID)
@@ -165,7 +165,7 @@ func TestSubscriberCounts(t *testing.T) {
 
 func TestDuplicateSubscriber(t *testing.T) {
 	db := testDB(t)
-	list, _ := db.CreateList("Test", "")
+	list, _ := db.CreateList("Test", "", "", "")
 
 	_, err := db.AddSubscriber("test@example.com", "", list.ID)
 	if err != nil {
@@ -181,7 +181,7 @@ func TestDuplicateSubscriber(t *testing.T) {
 
 func TestDeleteListCascade(t *testing.T) {
 	db := testDB(t)
-	list, _ := db.CreateList("Test", "")
+	list, _ := db.CreateList("Test", "", "", "")
 	db.AddSubscriber("a@example.com", "", list.ID)
 
 	if err := db.DeleteList(list.ID); err != nil {
@@ -196,7 +196,7 @@ func TestDeleteListCascade(t *testing.T) {
 
 func TestDeleteListWithCampaigns(t *testing.T) {
 	db := testDB(t)
-	list, _ := db.CreateList("Test", "")
+	list, _ := db.CreateList("Test", "", "", "")
 	sub, err := db.AddSubscriber("a@example.com", "", list.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -219,7 +219,7 @@ func TestDeleteListWithCampaigns(t *testing.T) {
 
 func TestDeleteCampaignCascade(t *testing.T) {
 	db := testDB(t)
-	list, _ := db.CreateList("Test", "")
+	list, _ := db.CreateList("Test", "", "", "")
 	sub, _ := db.AddSubscriber("test@example.com", "", list.ID)
 	c, _ := db.CreateCampaign("Test", "Sub", "Body", list.ID)
 
@@ -240,7 +240,7 @@ func TestDeleteCampaignCascade(t *testing.T) {
 
 func TestDeleteSubscriberWithSendLog(t *testing.T) {
 	db := testDB(t)
-	list, _ := db.CreateList("Test", "")
+	list, _ := db.CreateList("Test", "", "", "")
 	sub, _ := db.AddSubscriber("test@example.com", "", list.ID)
 	c, _ := db.CreateCampaign("Test", "Sub", "Body", list.ID)
 	db.LogSend(c.ID, sub.ID, "sent", "")
@@ -253,7 +253,7 @@ func TestDeleteSubscriberWithSendLog(t *testing.T) {
 
 func TestStatusValidation(t *testing.T) {
 	db := testDB(t)
-	list, _ := db.CreateList("Test", "")
+	list, _ := db.CreateList("Test", "", "", "")
 	c, _ := db.CreateCampaign("Test", "Sub", "Body", list.ID)
 
 	// Invalid status name
@@ -279,7 +279,7 @@ func TestStatusValidation(t *testing.T) {
 
 func TestStatusTransitionPartialToSending(t *testing.T) {
 	db := testDB(t)
-	list, _ := db.CreateList("Test", "")
+	list, _ := db.CreateList("Test", "", "", "")
 	c, _ := db.CreateCampaign("Test", "Sub", "Body", list.ID)
 
 	db.UpdateCampaignStatus(c.ID, "sending")
@@ -292,7 +292,7 @@ func TestStatusTransitionPartialToSending(t *testing.T) {
 
 func TestStatusTransitionFailedToSending(t *testing.T) {
 	db := testDB(t)
-	list, _ := db.CreateList("Test", "")
+	list, _ := db.CreateList("Test", "", "", "")
 	c, _ := db.CreateCampaign("Test", "Sub", "Body", list.ID)
 
 	db.UpdateCampaignStatus(c.ID, "sending")
@@ -305,7 +305,7 @@ func TestStatusTransitionFailedToSending(t *testing.T) {
 
 func TestStatusTransitionSendingToSending(t *testing.T) {
 	db := testDB(t)
-	list, _ := db.CreateList("Test", "")
+	list, _ := db.CreateList("Test", "", "", "")
 	c, _ := db.CreateCampaign("Test", "Sub", "Body", list.ID)
 
 	db.UpdateCampaignStatus(c.ID, "sending")
@@ -326,7 +326,7 @@ func TestUpdateCampaignStatusNonexistent(t *testing.T) {
 
 func TestUpdateCampaignStats(t *testing.T) {
 	db := testDB(t)
-	list, _ := db.CreateList("Test", "")
+	list, _ := db.CreateList("Test", "", "", "")
 	c, _ := db.CreateCampaign("Test", "Sub", "Body", list.ID)
 
 	if err := db.UpdateCampaignStats(c.ID, 10, 2); err != nil {
@@ -347,7 +347,7 @@ func TestUpdateCampaignStats(t *testing.T) {
 
 func TestUpdateCampaignBody(t *testing.T) {
 	db := testDB(t)
-	list, _ := db.CreateList("Test", "")
+	list, _ := db.CreateList("Test", "", "", "")
 	c, _ := db.CreateCampaign("Test", "Old Subject", "<p>Old</p>", list.ID)
 
 	updated, err := db.UpdateCampaignBody(c.ID, "New Subject", "<p>New</p>")
@@ -364,7 +364,7 @@ func TestUpdateCampaignBody(t *testing.T) {
 
 func TestUpdateCampaignBodyNonDraft(t *testing.T) {
 	db := testDB(t)
-	list, _ := db.CreateList("Test", "")
+	list, _ := db.CreateList("Test", "", "", "")
 	c, _ := db.CreateCampaign("Test", "Sub", "Body", list.ID)
 	db.ClaimCampaignForSending(c.ID) // Move to sending
 
@@ -380,7 +380,7 @@ func TestUpdateCampaignBodyNonDraft(t *testing.T) {
 
 func TestSetCampaignTemplate(t *testing.T) {
 	db := testDB(t)
-	list, _ := db.CreateList("Test", "")
+	list, _ := db.CreateList("Test", "", "", "")
 	c, _ := db.CreateCampaign("Test", "Sub", "Body", list.ID)
 	tmpl, _ := db.CreateTemplate("Test Template", "<html>{{.Content}}</html>")
 
@@ -396,7 +396,7 @@ func TestSetCampaignTemplate(t *testing.T) {
 
 func TestListCampaigns(t *testing.T) {
 	db := testDB(t)
-	list, _ := db.CreateList("Test", "")
+	list, _ := db.CreateList("Test", "", "", "")
 	db.CreateCampaign("A", "Sub A", "Body A", list.ID)
 	db.CreateCampaign("B", "Sub B", "Body B", list.ID)
 
@@ -411,7 +411,7 @@ func TestListCampaigns(t *testing.T) {
 
 func TestLogSendAndGetSentSubscriberIDs(t *testing.T) {
 	db := testDB(t)
-	list, _ := db.CreateList("Test", "")
+	list, _ := db.CreateList("Test", "", "", "")
 	sub1, _ := db.AddSubscriber("a@example.com", "", list.ID)
 	sub2, _ := db.AddSubscriber("b@example.com", "", list.ID)
 	c, _ := db.CreateCampaign("Test", "Sub", "Body", list.ID)
@@ -433,7 +433,7 @@ func TestLogSendAndGetSentSubscriberIDs(t *testing.T) {
 
 func TestGetSentSubscriberIDsEmpty(t *testing.T) {
 	db := testDB(t)
-	list, _ := db.CreateList("Test", "")
+	list, _ := db.CreateList("Test", "", "", "")
 	c, _ := db.CreateCampaign("Test", "Sub", "Body", list.ID)
 
 	sent, err := db.GetSentSubscriberIDs(c.ID)
@@ -558,7 +558,7 @@ func TestTemplateSizeLimit(t *testing.T) {
 
 func TestGetSubscriber(t *testing.T) {
 	db := testDB(t)
-	list, _ := db.CreateList("Test", "")
+	list, _ := db.CreateList("Test", "", "", "")
 
 	sub, _ := db.AddSubscriber("test@example.com", "Test", list.ID)
 
@@ -585,7 +585,7 @@ func TestGetSubscriberNotFound(t *testing.T) {
 
 func TestGetSubscriberByEmail(t *testing.T) {
 	db := testDB(t)
-	list, _ := db.CreateList("Test", "")
+	list, _ := db.CreateList("Test", "", "", "")
 	db.AddSubscriber("find@example.com", "", list.ID)
 
 	got, err := db.GetSubscriberByEmail("find@example.com", list.ID)
@@ -599,7 +599,7 @@ func TestGetSubscriberByEmail(t *testing.T) {
 
 func TestGetSubscriberByEmailNotFound(t *testing.T) {
 	db := testDB(t)
-	list, _ := db.CreateList("Test", "")
+	list, _ := db.CreateList("Test", "", "", "")
 
 	_, err := db.GetSubscriberByEmail("missing@example.com", list.ID)
 	if err == nil {
@@ -609,7 +609,7 @@ func TestGetSubscriberByEmailNotFound(t *testing.T) {
 
 func TestGetSubscriberByToken(t *testing.T) {
 	db := testDB(t)
-	list, _ := db.CreateList("Test", "")
+	list, _ := db.CreateList("Test", "", "", "")
 	sub, _ := db.AddSubscriber("test@example.com", "", list.ID)
 
 	got, err := db.GetSubscriberByToken(sub.ConfirmToken)
@@ -632,7 +632,7 @@ func TestGetSubscriberByTokenNotFound(t *testing.T) {
 
 func TestListSubscribers(t *testing.T) {
 	db := testDB(t)
-	list, _ := db.CreateList("Test", "")
+	list, _ := db.CreateList("Test", "", "", "")
 	db.AddSubscriber("a@example.com", "", list.ID)
 	db.AddSubscriber("b@example.com", "", list.ID)
 
@@ -647,7 +647,7 @@ func TestListSubscribers(t *testing.T) {
 
 func TestListSubscribersPaginated(t *testing.T) {
 	db := testDB(t)
-	list, _ := db.CreateList("Test", "")
+	list, _ := db.CreateList("Test", "", "", "")
 	for i := 0; i < 5; i++ {
 		db.AddSubscriber(string(rune('a'+i))+"@example.com", "", list.ID)
 	}
@@ -682,7 +682,7 @@ func TestListSubscribersPaginated(t *testing.T) {
 
 func TestGetActiveSubscribers(t *testing.T) {
 	db := testDB(t)
-	list, _ := db.CreateList("Test", "")
+	list, _ := db.CreateList("Test", "", "", "")
 	db.AddSubscriber("active@example.com", "", list.ID)
 	db.AddSubscriberWithStatus("pending@example.com", "", list.ID, "pending")
 
@@ -700,7 +700,7 @@ func TestGetActiveSubscribers(t *testing.T) {
 
 func TestConfirmSubscriber(t *testing.T) {
 	db := testDB(t)
-	list, _ := db.CreateList("Test", "")
+	list, _ := db.CreateList("Test", "", "", "")
 	sub, _ := db.AddSubscriberWithStatus("test@example.com", "", list.ID, "pending")
 
 	if err := db.ConfirmSubscriber(sub.ConfirmToken); err != nil {
@@ -726,7 +726,7 @@ func TestConfirmSubscriberInvalidToken(t *testing.T) {
 
 func TestConfirmSubscriberAlreadyActive(t *testing.T) {
 	db := testDB(t)
-	list, _ := db.CreateList("Test", "")
+	list, _ := db.CreateList("Test", "", "", "")
 	sub, _ := db.AddSubscriber("test@example.com", "", list.ID) // active by default
 
 	// Should still succeed (confirms already active subscriber)
@@ -737,7 +737,7 @@ func TestConfirmSubscriberAlreadyActive(t *testing.T) {
 
 func TestUnsubscribeByToken(t *testing.T) {
 	db := testDB(t)
-	list, _ := db.CreateList("Test", "")
+	list, _ := db.CreateList("Test", "", "", "")
 	sub, _ := db.AddSubscriber("test@example.com", "", list.ID)
 
 	if err := db.UnsubscribeByToken(sub.ConfirmToken); err != nil {
@@ -763,7 +763,7 @@ func TestUnsubscribeByTokenInvalid(t *testing.T) {
 
 func TestUnsubscribeByTokenAlreadyUnsubscribed(t *testing.T) {
 	db := testDB(t)
-	list, _ := db.CreateList("Test", "")
+	list, _ := db.CreateList("Test", "", "", "")
 	sub, _ := db.AddSubscriber("test@example.com", "", list.ID)
 
 	// First unsubscribe
@@ -777,7 +777,7 @@ func TestUnsubscribeByTokenAlreadyUnsubscribed(t *testing.T) {
 
 func TestMarkBounced(t *testing.T) {
 	db := testDB(t)
-	list, _ := db.CreateList("Test", "")
+	list, _ := db.CreateList("Test", "", "", "")
 	sub, _ := db.AddSubscriber("test@example.com", "", list.ID)
 
 	if err := db.MarkBounced(sub.ID); err != nil {
@@ -792,7 +792,7 @@ func TestMarkBounced(t *testing.T) {
 
 func TestMarkBouncedNonActive(t *testing.T) {
 	db := testDB(t)
-	list, _ := db.CreateList("Test", "")
+	list, _ := db.CreateList("Test", "", "", "")
 	sub, _ := db.AddSubscriberWithStatus("test@example.com", "", list.ID, "pending")
 
 	// MarkBounced only works on active subscribers
@@ -806,7 +806,7 @@ func TestMarkBouncedNonActive(t *testing.T) {
 
 func TestSearchSubscribers(t *testing.T) {
 	db := testDB(t)
-	list, _ := db.CreateList("Test", "")
+	list, _ := db.CreateList("Test", "", "", "")
 	db.AddSubscriber("alice@example.com", "Alice", list.ID)
 	db.AddSubscriber("bob@example.com", "Bob", list.ID)
 	db.AddSubscriber("charlie@example.com", "Charlie", list.ID)
@@ -836,7 +836,7 @@ func TestSearchSubscribers(t *testing.T) {
 
 func TestSearchSubscribersDefaultLimit(t *testing.T) {
 	db := testDB(t)
-	list, _ := db.CreateList("Test", "")
+	list, _ := db.CreateList("Test", "", "", "")
 	db.AddSubscriber("test@example.com", "", list.ID)
 
 	// Invalid limits should default to 50
@@ -853,7 +853,7 @@ func TestSearchSubscribersDefaultLimit(t *testing.T) {
 
 func TestImportSubscribers(t *testing.T) {
 	db := testDB(t)
-	list, _ := db.CreateList("Test", "")
+	list, _ := db.CreateList("Test", "", "", "")
 
 	entries := []struct{ Email, Name string }{
 		{"import1@example.com", "Import 1"},
@@ -878,7 +878,7 @@ func TestImportSubscribers(t *testing.T) {
 
 func TestImportSubscribersDuplicates(t *testing.T) {
 	db := testDB(t)
-	list, _ := db.CreateList("Test", "")
+	list, _ := db.CreateList("Test", "", "", "")
 
 	db.AddSubscriber("existing@example.com", "", list.ID)
 
@@ -898,7 +898,7 @@ func TestImportSubscribersDuplicates(t *testing.T) {
 
 func TestResubscribePending(t *testing.T) {
 	db := testDB(t)
-	list, _ := db.CreateList("Test", "")
+	list, _ := db.CreateList("Test", "", "", "")
 	sub, _ := db.AddSubscriber("test@example.com", "", list.ID)
 
 	// Unsubscribe first
@@ -927,7 +927,7 @@ func TestResubscribePending(t *testing.T) {
 
 func TestResubscribePendingActiveUser(t *testing.T) {
 	db := testDB(t)
-	list, _ := db.CreateList("Test", "")
+	list, _ := db.CreateList("Test", "", "", "")
 	sub, _ := db.AddSubscriber("test@example.com", "", list.ID)
 
 	// Active subscriber can't resubscribe
@@ -938,7 +938,7 @@ func TestResubscribePendingActiveUser(t *testing.T) {
 
 func TestResubscribeActive(t *testing.T) {
 	db := testDB(t)
-	list, _ := db.CreateList("Test", "")
+	list, _ := db.CreateList("Test", "", "", "")
 	sub, _ := db.AddSubscriber("test@example.com", "", list.ID)
 
 	db.UnsubscribeByToken(sub.ConfirmToken)
@@ -958,7 +958,7 @@ func TestResubscribeActive(t *testing.T) {
 
 func TestResubscribeActiveFromBounced(t *testing.T) {
 	db := testDB(t)
-	list, _ := db.CreateList("Test", "")
+	list, _ := db.CreateList("Test", "", "", "")
 	sub, _ := db.AddSubscriber("test@example.com", "", list.ID)
 
 	db.MarkBounced(sub.ID)
@@ -975,7 +975,7 @@ func TestResubscribeActiveFromBounced(t *testing.T) {
 
 func TestResubscribeActiveAlreadyActive(t *testing.T) {
 	db := testDB(t)
-	list, _ := db.CreateList("Test", "")
+	list, _ := db.CreateList("Test", "", "", "")
 	sub, _ := db.AddSubscriber("test@example.com", "", list.ID)
 
 	if err := db.ResubscribeActive(sub.ID); err == nil {
@@ -985,7 +985,7 @@ func TestResubscribeActiveAlreadyActive(t *testing.T) {
 
 func TestAddSubscriberWithStatus(t *testing.T) {
 	db := testDB(t)
-	list, _ := db.CreateList("Test", "")
+	list, _ := db.CreateList("Test", "", "", "")
 
 	sub, err := db.AddSubscriberWithStatus("test@example.com", "Test", list.ID, "pending")
 	if err != nil {
@@ -1004,7 +1004,7 @@ func TestAddSubscriberWithStatus(t *testing.T) {
 
 func TestAddSubscriberActiveIsConfirmed(t *testing.T) {
 	db := testDB(t)
-	list, _ := db.CreateList("Test", "")
+	list, _ := db.CreateList("Test", "", "", "")
 
 	sub, _ := db.AddSubscriber("test@example.com", "", list.ID)
 	if !sub.Confirmed {
@@ -1025,7 +1025,7 @@ func TestGetListNotFound(t *testing.T) {
 
 func TestGetListByName(t *testing.T) {
 	db := testDB(t)
-	db.CreateList("Find Me", "desc")
+	db.CreateList("Find Me", "desc", "", "")
 
 	got, err := db.GetListByName("Find Me")
 	if err != nil {
@@ -1047,8 +1047,8 @@ func TestGetListByNameNotFound(t *testing.T) {
 
 func TestListLists(t *testing.T) {
 	db := testDB(t)
-	db.CreateList("Alpha", "")
-	db.CreateList("Beta", "")
+	db.CreateList("Alpha", "", "", "")
+	db.CreateList("Beta", "", "", "")
 
 	lists, err := db.ListLists()
 	if err != nil {
@@ -1065,11 +1065,59 @@ func TestListLists(t *testing.T) {
 
 func TestDuplicateListName(t *testing.T) {
 	db := testDB(t)
-	db.CreateList("Unique", "")
+	db.CreateList("Unique", "", "", "")
 
-	_, err := db.CreateList("Unique", "")
+	_, err := db.CreateList("Unique", "", "", "")
 	if err == nil {
 		t.Error("expected error for duplicate list name")
+	}
+}
+
+func TestListFromIdentity(t *testing.T) {
+	db := testDB(t)
+
+	list, err := db.CreateList("Site A", "First site", "hello@site-a.com", "Site A Newsletter")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if list.FromEmail != "hello@site-a.com" {
+		t.Errorf("expected from_email 'hello@site-a.com', got %q", list.FromEmail)
+	}
+	if list.FromName != "Site A Newsletter" {
+		t.Errorf("expected from_name 'Site A Newsletter', got %q", list.FromName)
+	}
+
+	// Verify round-trip via GetList
+	got, err := db.GetList(list.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.FromEmail != "hello@site-a.com" || got.FromName != "Site A Newsletter" {
+		t.Errorf("from identity not persisted: email=%q name=%q", got.FromEmail, got.FromName)
+	}
+
+	// Verify round-trip via GetListByName
+	byName, err := db.GetListByName("Site A")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if byName.FromEmail != "hello@site-a.com" {
+		t.Errorf("from_email lost in GetListByName: %q", byName.FromEmail)
+	}
+
+	// Verify ListLists includes from identity
+	lists, err := db.ListLists()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(lists) != 1 || lists[0].FromEmail != "hello@site-a.com" {
+		t.Error("from_email lost in ListLists")
+	}
+
+	// Empty from identity falls back to global (verify empty strings work)
+	global, _ := db.CreateList("Global List", "", "", "")
+	if global.FromEmail != "" || global.FromName != "" {
+		t.Error("expected empty from identity for global fallback list")
 	}
 }
 
@@ -1084,7 +1132,7 @@ func TestGetCampaignNotFound(t *testing.T) {
 
 func TestSubjectSizeLimit(t *testing.T) {
 	db := testDB(t)
-	list, _ := db.CreateList("Test", "")
+	list, _ := db.CreateList("Test", "", "", "")
 
 	longSubject := make([]byte, maxSubjectSize+1)
 	for i := range longSubject {
@@ -1108,7 +1156,7 @@ func TestOpenInvalidPath(t *testing.T) {
 
 func TestSubscriberCountsAllStatuses(t *testing.T) {
 	db := testDB(t)
-	list, _ := db.CreateList("Test", "")
+	list, _ := db.CreateList("Test", "", "", "")
 
 	db.AddSubscriber("active@example.com", "", list.ID)
 	db.AddSubscriberWithStatus("pending@example.com", "", list.ID, "pending")
@@ -1466,7 +1514,7 @@ func TestGetTemplateByNameClosedDB(t *testing.T) {
 
 func TestCreateListClosedDB(t *testing.T) {
 	db := closedDB(t)
-	_, err := db.CreateList("Test", "")
+	_, err := db.CreateList("Test", "", "", "")
 	if err == nil {
 		t.Error("expected error on closed DB")
 	}
@@ -1483,7 +1531,7 @@ func TestUpdateCampaignStatusClosedDB(t *testing.T) {
 // Paginated limit over 1000 defaults
 func TestListSubscribersPaginatedOverLimit(t *testing.T) {
 	db := testDB(t)
-	list, _ := db.CreateList("Test", "")
+	list, _ := db.CreateList("Test", "", "", "")
 	db.AddSubscriber("a@example.com", "", list.ID)
 
 	subs, _ := db.ListSubscribersPaginated(list.ID, 2000, 0)
@@ -1531,7 +1579,7 @@ func TestListTemplatesEmpty(t *testing.T) {
 // ImportSubscribersEmpty
 func TestImportSubscribersEmpty(t *testing.T) {
 	db := testDB(t)
-	list, _ := db.CreateList("Test", "")
+	list, _ := db.CreateList("Test", "", "", "")
 
 	count, err := db.ImportSubscribers(list.ID, nil)
 	if err != nil {
@@ -1545,7 +1593,7 @@ func TestImportSubscribersEmpty(t *testing.T) {
 // GetSubscriberCountsEmpty
 func TestGetSubscriberCountsEmpty(t *testing.T) {
 	db := testDB(t)
-	list, _ := db.CreateList("Test", "")
+	list, _ := db.CreateList("Test", "", "", "")
 
 	counts, err := db.GetSubscriberCounts(list.ID)
 	if err != nil {

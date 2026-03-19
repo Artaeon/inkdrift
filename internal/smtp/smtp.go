@@ -17,11 +17,13 @@ type Sender struct {
 }
 
 type Email struct {
-	To      string
-	Subject string
-	HTML    string
-	Text    string
-	Headers map[string]string
+	To        string
+	Subject   string
+	HTML      string
+	Text      string
+	Headers   map[string]string
+	FromEmail string // per-email sender override (empty = use SMTP config)
+	FromName  string // per-email sender name override (empty = use SMTP config)
 }
 
 func NewSender(cfg config.SMTPConfig) *Sender {
@@ -167,19 +169,27 @@ func (s *Sender) sendSTARTTLS(addr string, auth smtp.Auth, to string, msg []byte
 func (s *Sender) buildMessage(email Email) []byte {
 	var b strings.Builder
 
+	// Per-email overrides for multi-tenant sending
+	fromAddr := s.cfg.From
+	if email.FromEmail != "" {
+		fromAddr = email.FromEmail
+	}
 	fromName := sanitizeHeaderValue(s.cfg.FromName)
+	if email.FromName != "" {
+		fromName = sanitizeHeaderValue(email.FromName)
+	}
 	if fromName == "" {
-		fromName = s.cfg.From
+		fromName = fromAddr
 	}
 
 	// Generate unique Message-ID for deliverability
 	domain := s.cfg.Host
-	if parts := strings.SplitN(s.cfg.From, "@", 2); len(parts) == 2 {
+	if parts := strings.SplitN(fromAddr, "@", 2); len(parts) == 2 {
 		domain = parts[1]
 	}
 	messageID := fmt.Sprintf("<%s@%s>", uuid.New().String(), domain)
 
-	b.WriteString(fmt.Sprintf("From: %s <%s>\r\n", sanitizeHeaderValue(fromName), sanitizeHeaderValue(s.cfg.From)))
+	b.WriteString(fmt.Sprintf("From: %s <%s>\r\n", fromName, sanitizeHeaderValue(fromAddr)))
 	b.WriteString(fmt.Sprintf("To: %s\r\n", sanitizeHeaderValue(email.To)))
 	b.WriteString(fmt.Sprintf("Subject: %s\r\n", sanitizeHeaderValue(email.Subject)))
 	b.WriteString(fmt.Sprintf("Date: %s\r\n", time.Now().Format(time.RFC1123Z)))

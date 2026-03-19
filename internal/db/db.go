@@ -31,6 +31,8 @@ type List struct {
 	ID          string
 	Name        string
 	Description string
+	FromEmail   string // per-list sender email (empty = use global SMTP from)
+	FromName    string // per-list sender display name (empty = use global SMTP from_name)
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 }
@@ -166,6 +168,26 @@ func (db *DB) migrate() error {
 	for _, m := range migrations {
 		if _, err := db.conn.Exec(m); err != nil {
 			return fmt.Errorf("migration failed: %w\nSQL: %s", err, m)
+		}
+	}
+
+	// Add columns for per-list sender identity (safe for existing databases)
+	for _, col := range []struct{ name, def string }{
+		{"from_email", "TEXT DEFAULT ''"},
+		{"from_name", "TEXT DEFAULT ''"},
+	} {
+		var count int
+		if err := db.conn.QueryRow(
+			"SELECT COUNT(*) FROM pragma_table_info('lists') WHERE name = ?", col.name,
+		).Scan(&count); err != nil {
+			return fmt.Errorf("checking column %s: %w", col.name, err)
+		}
+		if count == 0 {
+			if _, err := db.conn.Exec(
+				fmt.Sprintf("ALTER TABLE lists ADD COLUMN %s %s", col.name, col.def),
+			); err != nil {
+				return fmt.Errorf("adding column %s: %w", col.name, err)
+			}
 		}
 	}
 

@@ -77,7 +77,7 @@ Works out of the box with defaults. Configure via inkdrift.toml or environment v
 		lists, err := database.ListLists()
 		if err == nil && len(lists) == 0 {
 			log.Println("No subscriber lists found. Creating default list...")
-			list, err := database.CreateList("Newsletter", "Default newsletter list")
+			list, err := database.CreateList("Newsletter", "Default newsletter list", "", "")
 			if err != nil {
 				log.Printf("WARNING: could not create default list: %v", err)
 			} else {

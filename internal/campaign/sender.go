@@ -121,13 +121,21 @@ func (s *Sender) sendToSubscribers(campaignID string, retryOnly bool) error {
 	failedCount := 0
 	total := len(subscribers)
 
+	// Per-list sender identity (falls back to global SMTP config)
+	listFromEmail := list.FromEmail
+	listFromName := list.FromName
+	senderName := s.cfg.SMTP.FromName
+	if listFromName != "" {
+		senderName = listFromName
+	}
+
 	for i, sub := range subscribers {
 		ctx := render.Context{
 			SubscriberName:  sub.Name,
 			SubscriberEmail: sub.Email,
 			UnsubscribeURL:  s.unsubscribeURL(sub.ConfirmToken),
 			ListName:        list.Name,
-			SenderName:      s.cfg.SMTP.FromName,
+			SenderName:      senderName,
 			Content:         template.HTML(campaign.Body),
 			Year:            time.Now().Year(),
 		}
@@ -147,10 +155,12 @@ func (s *Sender) sendToSubscribers(campaignID string, retryOnly bool) error {
 		text := render.RenderText(html)
 
 		email := smtp.Email{
-			To:      sub.Email,
-			Subject: campaign.Subject,
-			HTML:    html,
-			Text:    text,
+			To:        sub.Email,
+			Subject:   campaign.Subject,
+			HTML:      html,
+			Text:      text,
+			FromEmail: listFromEmail,
+			FromName:  listFromName,
 			Headers: map[string]string{
 				"List-Unsubscribe":      fmt.Sprintf("<%s>", s.unsubscribeURL(sub.ConfirmToken)),
 				"List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
