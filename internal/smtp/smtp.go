@@ -189,7 +189,9 @@ func (s *Sender) buildMessage(email Email) []byte {
 	}
 	messageID := fmt.Sprintf("<%s@%s>", uuid.New().String(), domain)
 
-	b.WriteString(fmt.Sprintf("From: %s <%s>\r\n", fromName, sanitizeHeaderValue(fromAddr)))
+	// RFC 5322: quote display name to prevent display-name spoofing with angle brackets
+	quotedName := `"` + strings.ReplaceAll(fromName, `"`, `\"`) + `"`
+	b.WriteString(fmt.Sprintf("From: %s <%s>\r\n", quotedName, sanitizeHeaderValue(fromAddr)))
 	b.WriteString(fmt.Sprintf("To: %s\r\n", sanitizeHeaderValue(email.To)))
 	b.WriteString(fmt.Sprintf("Subject: %s\r\n", sanitizeHeaderValue(email.Subject)))
 	b.WriteString(fmt.Sprintf("Date: %s\r\n", time.Now().Format(time.RFC1123Z)))

@@ -5,6 +5,7 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"fmt"
+	"html"
 	"log"
 	"net"
 	"net/http"
@@ -397,14 +398,20 @@ func (s *Server) handleCreateList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(req.Description) > 1000 {
-		req.Description = req.Description[:1000]
+		runes := []rune(req.Description)
+		if len(runes) > 1000 {
+			req.Description = string(runes[:1000])
+		}
 	}
 	if req.FromEmail != "" && (!emailRegex.MatchString(req.FromEmail) || len(req.FromEmail) > 254) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid from_email address"})
 		return
 	}
 	if len(req.FromName) > 200 {
-		req.FromName = req.FromName[:200]
+		runes := []rune(req.FromName)
+		if len(runes) > 200 {
+			req.FromName = string(runes[:200])
+		}
 	}
 
 	list, err := s.db.CreateList(req.Name, req.Description, req.FromEmail, req.FromName)
@@ -657,7 +664,7 @@ func (s *Server) sendConfirmationEmail(sub *db.Subscriber, list *db.List) {
 </p>
 <p style="color:#666;font-size:13px">If you didn't request this, you can safely ignore this email.</p>
 <p style="color:#999;font-size:12px">Or copy this link: %s</p>
-</div>`, displayName, confirmURL, confirmURL),
+</div>`, html.EscapeString(displayName), confirmURL, confirmURL),
 		Text: fmt.Sprintf("Confirm your subscription to %s\n\nClick here to confirm: %s\n\nIf you didn't request this, ignore this email.",
 			displayName, confirmURL),
 	})

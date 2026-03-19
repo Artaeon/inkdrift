@@ -9,6 +9,7 @@
 
 <p align="center">
   <a href="#quick-start">Quick Start</a> &bull;
+  <a href="#multi-site-setup">Multi-Site</a> &bull;
   <a href="#website-integration">Integration</a> &bull;
   <a href="#api-reference">API</a> &bull;
   <a href="#deployment">Deployment</a> &bull;
@@ -24,6 +25,7 @@ Most newsletter services are SaaS platforms that charge per subscriber, lock you
 - **Bring your own SMTP** -- works with Hostinger, Hetzner, Contabo, Gmail, Outlook, Amazon SES, or any provider
 - **Own your data** -- everything lives in a single SQLite file you control
 - **Single binary** -- no runtime dependencies, no database servers, no message queues
+- **Multi-site** -- deploy once, use across unlimited websites with per-site sender identities
 - **CLI-first** -- manage everything from your terminal, script it, automate it
 - **REST API** -- drop a subscribe form into any website in minutes
 - **Production-ready** -- rate limiting, TLS, CORS, constant-time auth, RFC-compliant headers
@@ -78,7 +80,68 @@ InkDrift works out of the box with sensible defaults -- no config file needed fo
 ./inkdrift serve
 ```
 
+## Multi-Site Setup
+
+Deploy InkDrift **once** and use it for all your websites, projects, and clients. Each list gets its own sender identity while sharing one SMTP connection.
+
+```
+                     ┌─────────────────────────────┐
+                     │    InkDrift (single deploy)  │
+                     │                              │
+ yoursite.com ──────▶│  List: "YourSite Blog"       │ ◀─ from: news@yoursite.com
+                     │  List: "YourSite Product"    │ ◀─ from: updates@yoursite.com
+                     │                              │
+ client-a.com ──────▶│  List: "Client A"            │ ◀─ from: hello@client-a.com
+                     │                              │
+ client-b.com ──────▶│  List: "Client B Weekly"     │ ◀─ from: digest@client-b.com
+                     └─────────────────────────────┘
+```
+
+### Create lists with per-site sender identity
+
+```bash
+# Each website gets its own list with its own From address
+inkdrift list create "YourSite Blog" \
+  --from-email "news@yoursite.com" \
+  --from-name "YourSite Newsletter"
+
+inkdrift list create "Client A" \
+  --from-email "hello@client-a.com" \
+  --from-name "Client A News"
+
+# Lists without --from-email use the global SMTP sender
+inkdrift list create "Internal Updates"
+```
+
+### Or via the API
+
+```bash
+curl -X POST https://newsletter.example.com/api/v1/lists \
+  -H "X-API-Key: your-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Client B Weekly",
+    "from_email": "digest@client-b.com",
+    "from_name": "Client B Digest"
+  }'
+```
+
+### How per-list identity works
+
+| Setting | Behavior |
+|---------|----------|
+| `from_email` set | Emails show this address in the From header |
+| `from_email` empty | Falls back to global SMTP `from` config |
+| `from_name` set | Emails show this display name |
+| `from_name` empty | Falls back to global SMTP `from_name` config |
+
+The SMTP transport (server, credentials, TLS) stays global -- only the `From:` header changes per list. This works with any transactional email provider (Mailgun, SendGrid, SES, etc.). For best deliverability, set up SPF and DKIM records for each sending domain.
+
+> **Note:** Some SMTP providers (Gmail, Outlook personal) require the `From:` header to match the authenticated account. Transactional email providers (Mailgun, SendGrid, Amazon SES, Postmark) support sending from multiple addresses.
+
 ## Website Integration
+
+Each website points its subscribe form at the same InkDrift instance, targeting its own list.
 
 ### Next.js / React
 
@@ -97,7 +160,7 @@ export function NewsletterForm() {
       const res = await fetch("https://newsletter.example.com/api/v1/subscribe", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({ email, list: "YourSite Blog" }),
       });
       setStatus(res.ok ? "success" : "error");
     } catch {
@@ -139,7 +202,7 @@ export function NewsletterForm() {
     const res = await fetch("https://newsletter.example.com/api/v1/subscribe", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email }),
+      body: JSON.stringify({ email, list: "Client A" }),
     });
     alert(res.ok ? "Subscribed!" : "Something went wrong");
   });
@@ -149,12 +212,12 @@ export function NewsletterForm() {
 ### cURL
 
 ```bash
-# Subscribe
+# Subscribe to a specific list
 curl -X POST https://newsletter.example.com/api/v1/subscribe \
   -H "Content-Type: application/json" \
   -d '{"email": "reader@example.com", "list": "Weekly Digest"}'
 
-# List all lists (admin)
+# List all lists with subscriber counts (admin)
 curl https://newsletter.example.com/api/v1/lists \
   -H "X-API-Key: your-api-key"
 
@@ -194,9 +257,23 @@ Require `X-API-Key` header or `Authorization: Bearer <key>`.
 {
   "email": "user@example.com",
   "name": "Optional Name",
-  "list": "List Name"
+  "list": "List Name",
+  "list_id": "uuid (alternative to list name)"
 }
 ```
+
+#### Create List Request Body
+
+```json
+{
+  "name": "My Newsletter",
+  "description": "Optional description",
+  "from_email": "news@mysite.com",
+  "from_name": "My Site Newsletter"
+}
+```
+
+The `from_email` and `from_name` fields are optional. When set, emails sent to this list use these values in the `From:` header instead of the global SMTP config.
 
 #### Pagination
 
@@ -217,6 +294,8 @@ inkdrift backup ls                                 List backups
 inkdrift backup restore <file>                     Restore from backup
 
 inkdrift list create "Name"                        Create a mailing list
+inkdrift list create "Name" --from-email x@y.com   Create with custom sender
+inkdrift list create "Name" --from-name "Display"   Create with custom display name
 inkdrift list ls                                   List all lists (with subscriber counts)
 inkdrift list delete <id>                          Delete a list
 
@@ -250,7 +329,7 @@ When SMTP and domain are configured, InkDrift automatically enables double opt-i
 
 1. User submits their email via the subscribe API
 2. InkDrift creates the subscriber with `pending` status
-3. A confirmation email is sent with a unique link
+3. A confirmation email is sent with a unique link (using the list's sender identity)
 4. User clicks the link, subscriber becomes `active`
 5. Only `active` subscribers receive campaign emails
 
@@ -268,7 +347,7 @@ Email templates use Go's `html/template` syntax. Available variables:
 | `{{.SubscriberEmail}}` | Subscriber's email address |
 | `{{.UnsubscribeURL}}` | One-click unsubscribe link |
 | `{{.ListName}}` | Mailing list name |
-| `{{.SenderName}}` | Newsletter name from config |
+| `{{.SenderName}}` | List's `from_name` (or global config if not set) |
 | `{{.Content}}` | Campaign body (used in wrapper templates) |
 | `{{.Year}}` | Current year (useful for footer copyright) |
 | `{{.Extra}}` | Custom key-value pairs (map) |
@@ -287,18 +366,32 @@ InkDrift works with any standard SMTP provider. Here are common configurations:
 | Gmail         | `smtp.gmail.com`        | 587  | Requires app password          |
 | Outlook       | `smtp-mail.outlook.com` | 587  | STARTTLS                       |
 | Amazon SES    | `email-smtp.region.amazonaws.com` | 587 | IAM credentials         |
-| Mailgun       | `smtp.mailgun.org`      | 587  | STARTTLS                       |
+| Mailgun       | `smtp.mailgun.org`      | 587  | STARTTLS, supports multi-sender |
 | SendGrid      | `smtp.sendgrid.net`     | 587  | API key as password            |
+| Postmark      | `smtp.postmarkapp.com`  | 587  | Supports multiple sender signatures |
+
+### Per-List Sender Identity
+
+When using a transactional email provider (Mailgun, SendGrid, SES, Postmark), you can send from different addresses per list:
+
+```bash
+# Global SMTP handles transport; each list overrides the From header
+inkdrift list create "Blog" --from-email "blog@yoursite.com" --from-name "Your Blog"
+inkdrift list create "Product" --from-email "product@yoursite.com" --from-name "Product Updates"
+```
+
+**Important:** Set up SPF and DKIM DNS records for each sending domain to ensure deliverability.
 
 ### Email Deliverability
 
 InkDrift follows email best practices out of the box:
 
-- **RFC 5322 compliant headers** -- Message-ID, Date, Return-Path, Precedence
+- **RFC 5322 compliant headers** -- Message-ID, Date, Return-Path, Precedence, quoted display names
 - **Multipart emails** -- HTML + auto-generated plaintext for every message
 - **List-Unsubscribe header** -- one-click unsubscribe for Gmail, Apple Mail, etc.
 - **MX validation** -- verifies recipient domains before accepting subscriptions
 - **DNS checker** -- `inkdrift check-dns` verifies your SPF, DKIM, DMARC, and MX records
+- **Bounce handling** -- permanent SMTP failures (5xx) automatically mark addresses as bounced
 
 For best deliverability, configure these DNS records for your sending domain:
 
@@ -359,8 +452,8 @@ Every config value can be overridden with environment variables. This is the rec
 | `INKDRIFT_SMTP_PORT`      | SMTP server port                | `587`             |
 | `INKDRIFT_SMTP_USERNAME`  | SMTP authentication username    |                   |
 | `INKDRIFT_SMTP_PASSWORD`  | SMTP authentication password    |                   |
-| `INKDRIFT_SMTP_FROM`      | Sender email address            |                   |
-| `INKDRIFT_SMTP_FROM_NAME` | Sender display name             |                   |
+| `INKDRIFT_SMTP_FROM`      | Default sender email address    |                   |
+| `INKDRIFT_SMTP_FROM_NAME` | Default sender display name     |                   |
 | `INKDRIFT_SMTP_TLS`       | Enable TLS (`true`/`false`)     | `true`            |
 | `INKDRIFT_API_KEY`        | Admin API authentication key    |                   |
 | `INKDRIFT_API_PORT`       | API server port                 | `3377`            |
@@ -371,6 +464,8 @@ Every config value can be overridden with environment variables. This is the rec
 | `INKDRIFT_DOMAIN`         | Public domain for links         |                   |
 | `INKDRIFT_NAME`           | Newsletter name                 | `InkDrift Newsletter` |
 | `INKDRIFT_DB_PATH`        | SQLite database file path       | `inkdrift.db`     |
+
+Per-list sender identity (`from_email`, `from_name`) is configured per list via the CLI or API, not through global config.
 
 ## Deployment
 
@@ -400,17 +495,18 @@ The included `docker-compose.yml` has Traefik labels for automatic HTTPS.
 
 ### FleetDeck
 
-InkDrift ships with a `.fleetdeck.toml` for one-command deployment:
+Deploy with [FleetDeck](https://github.com/artaeon/fleetdeck) using the `bare` profile (InkDrift uses SQLite, no PostgreSQL/Redis needed):
 
 ```bash
-fleetdeck deploy . --domain newsletter.example.com
+# One-command deploy to your server
+fleetdeck deploy . \
+  --domain newsletter.example.com \
+  --server user@your-vps.com \
+  --profile bare \
+  --name inkdrift
 
-# Configure SMTP via environment
-fleetdeck env set inkdrift INKDRIFT_SMTP_HOST=smtp.hostinger.com
-fleetdeck env set inkdrift INKDRIFT_SMTP_USERNAME=newsletter@example.com
-fleetdeck env set inkdrift INKDRIFT_SMTP_PASSWORD=your-password
-fleetdeck env set inkdrift INKDRIFT_SMTP_FROM=newsletter@example.com
-fleetdeck env set inkdrift INKDRIFT_API_KEY=your-secret-key
+# Update later
+fleetdeck update inkdrift --server user@your-vps.com --rebuild
 ```
 
 ### Systemd
@@ -436,10 +532,13 @@ WantedBy=multi-user.target
 
 - **Double opt-in** confirms subscriber consent (CAN-SPAM / GDPR compliant)
 - **Constant-time API key comparison** prevents timing attacks
-- **Rate limiting** on all public and admin endpoints (configurable per IP)
+- **Rate limiting** on all public endpoints (configurable per IP)
 - **Request body limits** prevent memory exhaustion (1KB subscribe, 4KB list creation)
 - **Campaign body limits** 1MB max body, 998 char max subject (RFC 5322)
 - **SMTP header injection prevention** strips CR/LF from all header values
+- **RFC 5322 quoted display names** prevent From-header display-name spoofing
+- **HTML-escaped email content** prevents XSS in confirmation emails
+- **UTF-8 safe truncation** preserves valid encoding at input boundaries
 - **Database file permissions** set to 0600 (owner read/write only)
 - **SQLite single-writer mode** prevents database corruption under concurrency
 - **HTTP server timeouts** prevent slowloris and connection exhaustion
@@ -451,6 +550,19 @@ WantedBy=multi-user.target
 - **Request logging** for all API endpoints (method, path, status, duration, IP)
 - **Failed auth logging** records IP of failed API key attempts
 - **Database integrity check** on startup detects corruption before serving
+
+### CORS Configuration
+
+The default CORS origin is `*` to allow subscribe forms from any website. For production, restrict it to your domain(s):
+
+```toml
+[api]
+cors = "https://yoursite.com"
+```
+
+Or via environment: `INKDRIFT_CORS=https://yoursite.com`
+
+Admin endpoints always require an API key regardless of CORS settings.
 
 ## Architecture
 
@@ -469,7 +581,6 @@ inkdrift
 ├── inkdrift.example.toml   Example configuration
 ├── Dockerfile              Multi-stage Docker build
 ├── docker-compose.yml      Docker Compose with Traefik
-├── .fleetdeck.toml         FleetDeck deployment config
 └── Makefile                Build targets
 ```
 

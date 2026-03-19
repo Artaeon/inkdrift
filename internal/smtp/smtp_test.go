@@ -117,7 +117,7 @@ func TestBuildMessageHTMLOnly(t *testing.T) {
 
 	msg := string(s.buildMessage(email))
 
-	if !strings.Contains(msg, "From: Sender Name <sender@example.com>") {
+	if !strings.Contains(msg, `From: "Sender Name" <sender@example.com>`) {
 		t.Error("missing From header")
 	}
 	if !strings.Contains(msg, "To: recipient@example.com") {
@@ -290,9 +290,9 @@ func TestBuildMessageFromNameFallback(t *testing.T) {
 	}
 
 	msg := string(s.buildMessage(email))
-	// When FromName is empty, should use From address as display name
-	if !strings.Contains(msg, "From: sender@example.com <sender@example.com>") {
-		t.Errorf("expected From address as fallback name, got message: %s", msg[:200])
+	// When FromName is empty, should use From address as display name (quoted)
+	if !strings.Contains(msg, `From: "sender@example.com" <sender@example.com>`) {
+		t.Errorf("expected From address as fallback name, got message: %s", msg[:250])
 	}
 }
 
@@ -360,8 +360,8 @@ func TestBuildMessageFromOverride(t *testing.T) {
 
 	msg := string(s.buildMessage(email))
 
-	// From header should use the override, not global
-	if !strings.Contains(msg, "Site A <local@site-a.com>") {
+	// From header should use the override, not global (quoted per RFC 5322)
+	if !strings.Contains(msg, `"Site A" <local@site-a.com>`) {
 		t.Error("expected per-email From override in message headers")
 	}
 	// From: line should not contain global address
@@ -393,7 +393,7 @@ func TestBuildMessageFromOverridePartial(t *testing.T) {
 	}
 
 	msg := string(s.buildMessage(email))
-	if !strings.Contains(msg, "Global Name <local@site-a.com>") {
+	if !strings.Contains(msg, `"Global Name" <local@site-a.com>`) {
 		t.Errorf("expected global name with override email, got:\n%s", msg)
 	}
 }
@@ -413,7 +413,7 @@ func TestBuildMessageNoOverride(t *testing.T) {
 	}
 
 	msg := string(s.buildMessage(email))
-	if !strings.Contains(msg, "Global Name <global@example.com>") {
+	if !strings.Contains(msg, `"Global Name" <global@example.com>`) {
 		t.Error("expected global From when no override")
 	}
 }
